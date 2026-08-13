@@ -246,6 +246,24 @@ el("exportPngBtn").addEventListener("click", async () => {
 });
 
 el("exportPdfBtn").addEventListener("click", async () => {
+  // iPad/Safari can block a new tab if it is opened only after async rendering.
+  // Open the tab immediately from the user's tap, then fill it with the PDF.
+  const isiPadOrIPhone =
+    /iPad|iPhone|iPod/.test(navigator.userAgent) ||
+    (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
+
+  let previewWindow = null;
+  if (isiPadOrIPhone) {
+    previewWindow = window.open("", "_blank");
+    if (previewWindow) {
+      previewWindow.document.write(
+        "<!doctype html><title>Preparing PDF...</title>" +
+        "<meta name='viewport' content='width=device-width,initial-scale=1'>" +
+        "<body style='font-family:system-ui;padding:30px'>Preparing your planner PDF…</body>"
+      );
+    }
+  }
+
   try {
     if (!window.jspdf || !window.jspdf.jsPDF) {
       throw new Error("jsPDF did not load.");
@@ -255,7 +273,7 @@ el("exportPdfBtn").addEventListener("click", async () => {
     const { jsPDF } = window.jspdf;
     const d = pageDimensions();
     const canvas = await plannerCanvas(2.5);
-    const imgData = canvas.toDataURL("image/jpeg", 0.95);
+    const imgData = canvas.toDataURL("image/jpeg", 0.96);
 
     const pdf = new jsPDF({
       orientation: "portrait",
@@ -266,25 +284,42 @@ el("exportPdfBtn").addEventListener("click", async () => {
 
     pdf.addImage(imgData, "JPEG", 0, 0, d.mmW, d.mmH, undefined, "FAST");
 
-    const isiPadOrIPhone = /iPad|iPhone|iPod/.test(navigator.userAgent) ||
-      (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
+    const blob = pdf.output("blob");
+    const fileName = `planner-${el("pageSize").value}.pdf`;
+    const url = URL.createObjectURL(blob);
 
     if (isiPadOrIPhone) {
-      const blob = pdf.output("blob");
-      const url = URL.createObjectURL(blob);
-      const opened = window.open(url, "_blank");
-      if (!opened) {
-        window.location.href = url;
+      if (previewWindow) {
+        previewWindow.location.href = url;
+      } else {
+        // Fallback if Safari refuses the pre-opened tab.
+        const a = document.createElement("a");
+        a.href = url;
+        a.target = "_blank";
+        a.rel = "noopener";
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
       }
-      setTimeout(() => URL.revokeObjectURL(url), 60000);
       showToast("PDF opened. Use Share → Save to Files.");
     } else {
-      pdf.save(`planner-${el("pageSize").value}.pdf`);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = fileName;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
       showToast("PDF exported successfully.");
     }
+
+    setTimeout(() => URL.revokeObjectURL(url), 120000);
   } catch (err) {
     console.error("PDF export error:", err);
-    showToast("PDF export failed. Refresh the page and try again.");
+    if (previewWindow && !previewWindow.closed) {
+      previewWindow.document.body.innerHTML =
+        "<p style='font-family:system-ui;padding:24px'>PDF export failed. Please return to Planner Studio and try again.</p>";
+    }
+    showToast("PDF export failed. Please refresh and try again.");
   }
 });
 

@@ -12,11 +12,11 @@
   <header class="topbar">
     <div>
       <h1>Planner Studio</h1>
-      <p>Create original printable planners from broad visual inspiration.</p>
+      <p>Create original coordinated printable planner collections.</p>
     </div>
     <div class="top-actions">
       <button id="saveProjectBtn" class="ghost">Save Project</button>
-      <button id="exportPdfBtn" class="primary">Export PDF</button>
+      <button id="exportPdfBtn" class="primary">Export 6-Page PDF</button>
     </div>
   </header>
 
@@ -46,7 +46,8 @@
       </section>
 
       <section>
-        <h2>Planner sections</h2>
+        <h2>Daily page sections</h2>
+        <p class="microcopy">These controls affect the Daily page only.</p>
         <div id="sectionControls" class="section-controls"></div>
       </section>
     </aside>
@@ -72,25 +73,22 @@
           </select>
         </label>
 
-        <button id="regenerateBtn" class="ghost">Regenerate layout</button>
-        <button id="exportPngBtn" class="ghost">Export PNG</button>
+        <button id="regenerateBtn" class="ghost">Regenerate Daily</button>
+        <button id="exportPngBtn" class="ghost">Export Current PNG</button>
+      </div>
+
+      <div class="page-tabs" id="pageTabs">
+        <button data-page="daily" class="active">Daily</button>
+        <button data-page="weekly">Weekly</button>
+        <button data-page="monthly">Monthly</button>
+        <button data-page="todo">To-Do</button>
+        <button data-page="notes">Notes</button>
+        <button data-page="habit">Habit Tracker</button>
       </div>
 
       <div class="preview-stage">
         <div id="plannerPage" class="planner-page clean">
-          <div class="planner-header">
-            <div>
-              <p class="eyebrow">DAILY PLANNER</p>
-              <h2 id="plannerTitle">Today</h2>
-            </div>
-            <div class="date-box">
-              <span>Date</span>
-              <div class="date-line"></div>
-            </div>
-          </div>
-
-          <div id="plannerGrid" class="planner-grid"></div>
-
+          <div id="plannerContent"></div>
           <footer class="planner-footer">
             <span>Make room for what matters.</span>
           </footer>
@@ -144,6 +142,11 @@
         </label>
       </section>
 
+      <section class="collection-card">
+        <strong>6-page collection</strong>
+        <p>Daily, Weekly, Monthly, To-Do, Notes and Habit Tracker share one coordinated design system.</p>
+      </section>
+
       <section class="note">
         <strong>Originality guardrail</strong>
         <p>Reference images are used only for broad visual inspiration. Do not copy logos, characters, text, illustrations or distinctive compositions.</p>
@@ -152,7 +155,6 @@
   </main>
 
   <div id="toast" class="toast hidden"></div>
-
   <script src="script.js"></script>
 </body>
 </html>

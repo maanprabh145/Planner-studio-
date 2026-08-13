@@ -245,21 +245,159 @@ el("exportPngBtn").addEventListener("click", async () => {
   }
 });
 
+function hexToRgb(hex) {
+  const clean = hex.replace("#", "");
+  const value = parseInt(clean.length === 3
+    ? clean.split("").map(c => c + c).join("")
+    : clean, 16);
+  return {
+    r: (value >> 16) & 255,
+    g: (value >> 8) & 255,
+    b: value & 255
+  };
+}
+
+function pdfSetColor(pdf, method, hex) {
+  const { r, g, b } = hexToRgb(hex);
+  pdf[method](r, g, b);
+}
+
+function pdfDrawLines(pdf, x, y, w, count, gap, color) {
+  pdfSetColor(pdf, "setDrawColor", color);
+  pdf.setLineWidth(0.22);
+  for (let i = 0; i < count; i++) {
+    const yy = y + i * gap;
+    pdf.line(x, yy, x + w, yy);
+  }
+}
+
+function pdfDrawCheckLines(pdf, x, y, w, count, gap, color) {
+  pdfSetColor(pdf, "setDrawColor", color);
+  pdf.setLineWidth(0.22);
+  for (let i = 0; i < count; i++) {
+    const yy = y + i * gap;
+    pdf.rect(x, yy - 2.4, 2.7, 2.7);
+    pdf.line(x + 6, yy, x + w, yy);
+  }
+}
+
+function plannerPdfLayout() {
+  const size = el("pageSize").value;
+  if (size === "a4") return { w: 210, h: 297 };
+  if (size === "a5") return { w: 148, h: 210 };
+  return { w: 215.9, h: 279.4 };
+}
+
+function drawPlannerVectorPage(pdf) {
+  const { w, h } = plannerPdfLayout();
+
+  const bg = el("bgColor").value;
+  const accent = el("accentColor").value;
+  const text = el("textColor").value;
+  const border = el("borderColor").value;
+
+  // Background
+  pdfSetColor(pdf, "setFillColor", bg);
+  pdf.rect(0, 0, w, h, "F");
+
+  const margin = w * 0.075;
+  const usableW = w - margin * 2;
+  const top = h * 0.07;
+
+  // Header
+  pdfSetColor(pdf, "setTextColor", accent);
+  pdf.setFont("helvetica", "bold");
+  pdf.setFontSize(Math.max(8, w * 0.043));
+  pdf.text("DAILY PLANNER", margin, top);
+
+  pdfSetColor(pdf, "setTextColor", text);
+  pdf.setFont("times", "normal");
+  pdf.setFontSize(Math.max(21, w * 0.15));
+  pdf.text("Today", margin, top + h * 0.045);
+
+  pdfSetColor(pdf, "setTextColor", accent);
+  pdf.setFont("helvetica", "bold");
+  pdf.setFontSize(Math.max(8, w * 0.043));
+  pdf.text("DATE", w - margin - 36, top + h * 0.024);
+
+  pdfSetColor(pdf, "setDrawColor", border);
+  pdf.setLineWidth(0.28);
+  pdf.line(w - margin - 36, top + h * 0.035, w - margin, top + h * 0.035);
+
+  pdfSetColor(pdf, "setDrawColor", accent);
+  pdf.setLineWidth(0.55);
+  pdf.line(margin, top + h * 0.058, w - margin, top + h * 0.058);
+
+  // Grid geometry
+  const gap = w * 0.028;
+  const colW = (usableW - gap) / 2;
+  const startY = top + h * 0.078;
+  const bottomReserve = h * 0.07;
+  const availableH = h - startY - bottomReserve;
+
+  const enabled = activeSections
+    .map(id => sections.find(s => s.id === id))
+    .filter(Boolean);
+
+  // Estimate rows, favor 3 rows like the current design.
+  const rowCount = Math.max(1, Math.ceil(enabled.length / 2));
+  const rowGap = h * 0.025;
+  const cardH = (availableH - rowGap * (rowCount - 1)) / rowCount;
+
+  const radius = Math.min(4.5, Number(el("cornerRadius").value) * 0.22);
+
+  enabled.forEach((section, index) => {
+    const row = Math.floor(index / 2);
+    const col = index % 2;
+    const x = margin + col * (colW + gap);
+    const y = startY + row * (cardH + rowGap);
+
+    pdfSetColor(pdf, "setDrawColor", border);
+    pdf.setLineWidth(0.28);
+    pdf.roundedRect(x, y, colW, cardH, radius, radius, "S");
+
+    pdfSetColor(pdf, "setTextColor", accent);
+    pdf.setFont("helvetica", "bold");
+    pdf.setFontSize(Math.max(8, w * 0.044));
+    pdf.text(section.label.toUpperCase(), x + 5, y + 8);
+
+    const innerX = x + 5;
+    const innerY = y + 17;
+    const innerW = colW - 10;
+    const usableCardH = cardH - 22;
+
+    const lineCount = section.tall ? 8 : 5;
+    const lineGap = usableCardH / Math.max(1, lineCount);
+
+    if (section.type === "check") {
+      pdfDrawCheckLines(pdf, innerX, innerY, innerW, lineCount, lineGap, border);
+    } else {
+      pdfDrawLines(pdf, innerX, innerY, innerW, lineCount, lineGap, border);
+    }
+  });
+
+  // Footer
+  pdfSetColor(pdf, "setTextColor", accent);
+  pdf.setFont("helvetica", "normal");
+  pdf.setFontSize(Math.max(7, w * 0.034));
+  pdf.text("Make room for what matters.", w / 2, h - h * 0.03, { align: "center" });
+}
+
 el("exportPdfBtn").addEventListener("click", async () => {
-  // iPad/Safari can block a new tab if it is opened only after async rendering.
-  // Open the tab immediately from the user's tap, then fill it with the PDF.
   const isiPadOrIPhone =
     /iPad|iPhone|iPod/.test(navigator.userAgent) ||
     (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
 
   let previewWindow = null;
+
+  // Open immediately on iPad so Safari doesn't block it after async work.
   if (isiPadOrIPhone) {
     previewWindow = window.open("", "_blank");
     if (previewWindow) {
       previewWindow.document.write(
         "<!doctype html><title>Preparing PDF...</title>" +
         "<meta name='viewport' content='width=device-width,initial-scale=1'>" +
-        "<body style='font-family:system-ui;padding:30px'>Preparing your planner PDF…</body>"
+        "<body style='font-family:system-ui;padding:30px'>Preparing your sharp print PDF…</body>"
       );
     }
   }
@@ -269,30 +407,28 @@ el("exportPdfBtn").addEventListener("click", async () => {
       throw new Error("jsPDF did not load.");
     }
 
-    showToast("Preparing PDF...");
+    showToast("Preparing sharp PDF...");
+
     const { jsPDF } = window.jspdf;
-    const d = pageDimensions();
-    const canvas = await plannerCanvas(2.5);
-    const imgData = canvas.toDataURL("image/jpeg", 0.96);
+    const { w, h } = plannerPdfLayout();
 
     const pdf = new jsPDF({
       orientation: "portrait",
       unit: "mm",
-      format: [d.mmW, d.mmH],
+      format: [w, h],
       compress: true
     });
 
-    pdf.addImage(imgData, "JPEG", 0, 0, d.mmW, d.mmH, undefined, "FAST");
+    drawPlannerVectorPage(pdf);
 
     const blob = pdf.output("blob");
-    const fileName = `planner-${el("pageSize").value}.pdf`;
     const url = URL.createObjectURL(blob);
+    const fileName = `planner-${el("pageSize").value}-print.pdf`;
 
     if (isiPadOrIPhone) {
       if (previewWindow) {
         previewWindow.location.href = url;
       } else {
-        // Fallback if Safari refuses the pre-opened tab.
         const a = document.createElement("a");
         a.href = url;
         a.target = "_blank";
@@ -301,7 +437,7 @@ el("exportPdfBtn").addEventListener("click", async () => {
         a.click();
         a.remove();
       }
-      showToast("PDF opened. Use Share → Save to Files.");
+      showToast("Sharp PDF opened. Use Share → Save to Files.");
     } else {
       const a = document.createElement("a");
       a.href = url;
@@ -309,12 +445,12 @@ el("exportPdfBtn").addEventListener("click", async () => {
       document.body.appendChild(a);
       a.click();
       a.remove();
-      showToast("PDF exported successfully.");
+      showToast("Sharp PDF exported.");
     }
 
     setTimeout(() => URL.revokeObjectURL(url), 120000);
   } catch (err) {
-    console.error("PDF export error:", err);
+    console.error("Vector PDF export error:", err);
     if (previewWindow && !previewWindow.closed) {
       previewWindow.document.body.innerHTML =
         "<p style='font-family:system-ui;padding:24px'>PDF export failed. Please return to Planner Studio and try again.</p>";

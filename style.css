@@ -58,7 +58,7 @@ button { cursor: pointer; border: 0; border-radius: 10px; padding: 10px 14px; }
 }
 
 .panel h2 { font-size: 14px; margin: 0 0 12px; }
-.microcopy { margin: -4px 0 10px; font-size: 10px; color: #777; }
+.microcopy { margin: 8px 0 0; font-size: 10px; color: #777; line-height: 1.35; }
 
 .upload-box {
   border: 1px dashed #a9aaa6;
@@ -98,6 +98,7 @@ button { cursor: pointer; border: 0; border-radius: 10px; padding: 10px 14px; }
   border-radius:9px;
   border:1px solid #d8d6cf;
   cursor:pointer;
+  position: relative;
 }
 .section-controls { display:grid; gap:8px; }
 .section-toggle { display:flex; align-items:center; gap:8px; font-size:12px; }
@@ -106,7 +107,7 @@ button { cursor: pointer; border: 0; border-radius: 10px; padding: 10px 14px; }
 
 .workspace-toolbar {
   padding:12px 16px;
-  background:rgba(255,255,255,.8);
+  background:rgba(255,255,255,.82);
   border-bottom:1px solid var(--line);
   display:flex;
   flex-wrap:wrap;
@@ -173,6 +174,7 @@ button { cursor: pointer; border: 0; border-radius: 10px; padding: 10px 14px; }
   box-shadow:0 18px 55px rgba(0,0,0,.12);
   display:flex;
   flex-direction:column;
+  position: relative;
 }
 
 .planner-header {
@@ -183,7 +185,11 @@ button { cursor: pointer; border: 0; border-radius: 10px; padding: 10px 14px; }
   border-bottom:2px solid var(--page-accent);
   padding-bottom:14px;
   margin-bottom:var(--page-gap);
+  position: relative;
 }
+
+.header-left { position:relative; }
+.header-right { text-align:right; position:relative; }
 
 .eyebrow {
   margin:0 0 5px;
@@ -209,6 +215,46 @@ button { cursor: pointer; border: 0; border-radius: 10px; padding: 10px 14px; }
 
 .date-line { border-bottom:1px solid var(--page-border); margin-top:12px; }
 
+.ornament-corner {
+  position:absolute;
+  top:-10px;
+  width:48px;
+  height:28px;
+  opacity:.95;
+  color:var(--page-accent);
+}
+.ornament-corner.left { left:-2px; }
+.ornament-corner.right { right:-2px; }
+
+.ornament-row {
+  display:flex;
+  justify-content:center;
+  gap:10px;
+  margin:-6px 0 14px;
+  min-height:20px;
+}
+
+.motif-mini {
+  width:22px;
+  height:16px;
+  color:var(--page-accent);
+  opacity:.92;
+}
+
+.title-with-icon {
+  display:flex;
+  align-items:center;
+  gap:6px;
+  margin-bottom:10px;
+}
+
+.title-icon {
+  width:14px;
+  height:14px;
+  color:var(--page-accent);
+  flex: 0 0 auto;
+}
+
 .planner-grid {
   display:grid;
   grid-template-columns:1fr 1fr;
@@ -222,13 +268,13 @@ button { cursor: pointer; border: 0; border-radius: 10px; padding: 10px 14px; }
   border-radius:var(--page-radius);
   padding:14px;
   min-height:135px;
-  background:rgba(255,255,255,.2);
+  background:rgba(255,255,255,.22);
 }
 .planner-card.tall { min-height:210px; }
 .planner-card.wide { grid-column:1 / -1; }
 
 .card-title {
-  margin:0 0 10px;
+  margin:0;
   color:var(--page-accent);
   font-size:11px;
   text-transform:uppercase;
@@ -276,10 +322,11 @@ button { cursor: pointer; border: 0; border-radius: 10px; padding: 10px 14px; }
   border:1px solid var(--page-border);
   border-radius:var(--page-radius);
   padding:12px;
+  background: rgba(255,255,255,.16);
 }
 .week-day:nth-child(7) { grid-column:1 / -1; }
 .week-day h3, .month-cell h3 {
-  margin:0 0 8px;
+  margin:0;
   color:var(--page-accent);
   font-size:10px;
   letter-spacing:.12em;
@@ -310,6 +357,7 @@ button { cursor: pointer; border: 0; border-radius: 10px; padding: 10px 14px; }
   min-height:80px;
   border-radius:calc(var(--page-radius) * .45);
   padding:7px;
+  background: rgba(255,255,255,.12);
 }
 .month-cell .num { font-size:9px; color:var(--page-accent); }
 
@@ -322,6 +370,7 @@ button { cursor: pointer; border: 0; border-radius: 10px; padding: 10px 14px; }
   border:1px solid var(--page-border);
   border-radius:var(--page-radius);
   padding:16px;
+  background: rgba(255,255,255,.16);
 }
 .todo-main { min-height:555px; }
 .todo-side { min-height:555px; display:grid; gap:14px; align-content:start; }

@@ -13,7 +13,8 @@ const sections = [
 const pageTypes = ["daily","weekly","monthly","todo","notes","habit"];
 let currentPage = "daily";
 let activeSections = ["top3","schedule","todo","notes","meals","gratitude"];
-let extractedPalette = ["#f8f3ea","#64756b","#2e342f","#b7b0a3","#d9c8ae"];
+let extractedPalette = ["#f6f1ea","#7d8a7d","#3d403d","#c9c0b4","#e6d6c9"];
+let detectedMotif = "petals";
 
 const el = id => document.getElementById(id);
 const planner = el("plannerPage");
@@ -22,49 +23,252 @@ function showToast(msg) {
   const t = el("toast");
   t.textContent = msg;
   t.classList.remove("hidden");
-  setTimeout(() => t.classList.add("hidden"), 2400);
+  setTimeout(() => t.classList.add("hidden"), 2600);
 }
 
+function clamp(v,min,max){ return Math.min(max,Math.max(min,v)); }
+
+function hexToRgb(hex) {
+  const clean = hex.replace("#","");
+  const full = clean.length === 3 ? clean.split("").map(c=>c+c).join("") : clean;
+  const num = parseInt(full,16);
+  return { r:(num>>16)&255, g:(num>>8)&255, b:num&255 };
+}
+function rgbToHex(r,g,b) {
+  return "#" + [r,g,b].map(v=>Math.round(v).toString(16).padStart(2,"0")).join("");
+}
+function rgbToHsl(r,g,b){
+  r/=255; g/=255; b/=255;
+  const max=Math.max(r,g,b), min=Math.min(r,g,b);
+  let h, s, l=(max+min)/2;
+  if(max===min){ h=s=0; }
+  else{
+    const d=max-min;
+    s=l>0.5 ? d/(2-max-min) : d/(max+min);
+    switch(max){
+      case r: h=(g-b)/d + (g<b ? 6 : 0); break;
+      case g: h=(b-r)/d + 2; break;
+      case b: h=(r-g)/d + 4; break;
+    }
+    h/=6;
+  }
+  return { h:h*360, s:s*100, l:l*100 };
+}
+function hslToRgb(h,s,l){
+  h=((h%360)+360)%360; s/=100; l/=100;
+  if(s===0){
+    const v=l*255;
+    return {r:v,g:v,b:v};
+  }
+  const hue2rgb=(p,q,t)=>{
+    if(t<0) t+=1;
+    if(t>1) t-=1;
+    if(t<1/6) return p + (q-p)*6*t;
+    if(t<1/2) return q;
+    if(t<2/3) return p + (q-p)*(2/3-t)*6;
+    return p;
+  };
+  const q=l<0.5 ? l*(1+s) : l+s-l*s;
+  const p=2*l-q;
+  const r=hue2rgb(p,q,h/360+1/3)*255;
+  const g=hue2rgb(p,q,h/360)*255;
+  const b=hue2rgb(p,q,h/360-1/3)*255;
+  return {r,g,b};
+}
+function hexToHsl(hex){
+  const {r,g,b}=hexToRgb(hex);
+  return rgbToHsl(r,g,b);
+}
+function hslToHex(h,s,l){
+  const {r,g,b}=hslToRgb(h,s,l);
+  return rgbToHex(r,g,b);
+}
+function luminance(hex){
+  const {r,g,b}=hexToRgb(hex);
+  return 0.2126*(r/255)+0.7152*(g/255)+0.0722*(b/255);
+}
+function blendHex(a,b,amount){
+  const ca=hexToRgb(a), cb=hexToRgb(b);
+  const r=ca.r*(1-amount)+cb.r*amount;
+  const g=ca.g*(1-amount)+cb.g*amount;
+  const b2=ca.b*(1-amount)+cb.b*amount;
+  return rgbToHex(r,g,b2);
+}
+function softenHex(hex,{maxSat=34,minLight=36,maxLight=84,targetLight=null,targetSat=null,withCream=0.18}={}){
+  const hsl=hexToHsl(hex);
+  let s = targetSat !== null ? targetSat : Math.min(hsl.s, maxSat);
+  let l = targetLight !== null ? targetLight : clamp(hsl.l, minLight, maxLight);
+  let out = hslToHex(hsl.h, s, l);
+  if(withCream>0) out = blendHex(out, "#faf6ef", withCream);
+  return out;
+}
+function buildSoftPalette(raw){
+  const sorted=[...raw].sort((a,b)=>luminance(b)-luminance(a));
+  const lightest=sorted[0] || "#f5efe6";
+  const second=sorted[1] || raw[1] || "#d9cec0";
+  const darkest=[...raw].sort((a,b)=>luminance(a)-luminance(b))[0] || "#444";
+  const middle=raw[1] || raw[0] || "#8a978a";
+  const warm=raw[2] || second;
+
+  const bg = softenHex(lightest,{maxSat:18,targetLight:94,withCream:0.40});
+  const accent = softenHex(middle,{maxSat:34,targetLight:58,withCream:0.18});
+  const text = softenHex(darkest,{maxSat:20,targetLight:26,withCream:0.05});
+  const border = blendHex(accent,bg,0.56);
+  const softExtra1 = softenHex(second,{maxSat:26,targetLight:78,withCream:0.18});
+  const softExtra2 = softenHex(warm,{maxSat:30,targetLight:72,withCream:0.15});
+
+  return [bg, accent, text, border, softExtra1, softExtra2];
+}
+function averagePaletteFromImage(img,count=5) {
+  const canvas=document.createElement("canvas");
+  const ctx=canvas.getContext("2d",{willReadFrequently:true});
+  canvas.width=140; canvas.height=140;
+  ctx.drawImage(img,0,0,140,140);
+  const data=ctx.getImageData(0,0,140,140).data;
+  const buckets=new Map();
+
+  for(let i=0;i<data.length;i+=16){
+    if(data[i+3]<180) continue;
+    const r=Math.round(data[i]/32)*32;
+    const g=Math.round(data[i+1]/32)*32;
+    const b=Math.round(data[i+2]/32)*32;
+    const key=[Math.min(r,255),Math.min(g,255),Math.min(b,255)].join(",");
+    buckets.set(key,(buckets.get(key)||0)+1);
+  }
+  const raw=[...buckets.entries()]
+    .sort((a,b)=>b[1]-a[1])
+    .slice(0,count)
+    .map(([k])=>{
+      const [r,g,b]=k.split(",").map(Number);
+      return rgbToHex(r,g,b);
+    });
+
+  return raw.length ? raw : ["#e8dfd6","#afbcac","#7f817a","#d3c3b2","#d9d0c4"];
+}
+function chooseMotifFromPalette(palette){
+  const sample = palette[4] || palette[1] || "#cda6b6";
+  const {h,s,l} = hexToHsl(sample);
+  if(h >= 320 || h <= 18) return "bows";
+  if(h > 18 && h <= 55) return "petals";
+  if(h > 55 && h <= 105) return "scallops";
+  if(h > 105 && h <= 165) return "leaves";
+  if(h > 165 && h <= 235) return "waves";
+  if(h > 235 && h <= 310) return "stars";
+  return "petals";
+}
+function currentMotif(){
+  const chosen = el("motifStyle").value;
+  return chosen === "auto" ? detectedMotif : chosen;
+}
+function titleIconSvg(){
+  return motifSvg(currentMotif(),"mini");
+}
+function motifSvg(type, placement="mini"){
+  const cls = placement === "mini" ? "motif-mini" : "ornament-corner " + placement;
+  if(type==="petals"){
+    return `<svg class="${cls}" viewBox="0 0 48 24" fill="none" stroke="currentColor" stroke-width="1.6">
+      <circle cx="24" cy="12" r="2.2" fill="currentColor" opacity=".7"/>
+      <ellipse cx="24" cy="5.8" rx="4.4" ry="2.7"/>
+      <ellipse cx="24" cy="18.2" rx="4.4" ry="2.7"/>
+      <ellipse cx="16.8" cy="12" rx="4.4" ry="2.7" transform="rotate(-90 16.8 12)"/>
+      <ellipse cx="31.2" cy="12" rx="4.4" ry="2.7" transform="rotate(-90 31.2 12)"/>
+    </svg>`;
+  }
+  if(type==="leaves"){
+    return `<svg class="${cls}" viewBox="0 0 48 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round">
+      <path d="M10 16c6-8 12-9 18-7-3 6-8 10-18 7z"/>
+      <path d="M20 9c2 4 4 7 8 9"/>
+      <path d="M28 14c3-5 8-7 14-5-2 5-5 8-12 8"/>
+    </svg>`;
+  }
+  if(type==="bows"){
+    return `<svg class="${cls}" viewBox="0 0 48 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M24 12c-3-2-6-4-9-4-2.6 0-3.8 2.2-2.9 4.2 1 2.1 3.8 2.8 7.1 2.3"/>
+      <path d="M24 12c3-2 6-4 9-4 2.6 0 3.8 2.2 2.9 4.2-1 2.1-3.8 2.8-7.1 2.3"/>
+      <circle cx="24" cy="12" r="2.2"/>
+      <path d="M22.8 13.7l-4.2 5.8M25.2 13.7l4.2 5.8"/>
+    </svg>`;
+  }
+  if(type==="stars"){
+    return `<svg class="${cls}" viewBox="0 0 48 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round">
+      <path d="M12 5v10M7 10h10M8.5 6.5l7 7M15.5 6.5l-7 7"/>
+      <path d="M31 8v8M27 12h8M28.5 9.5l5 5M33.5 9.5l-5 5"/>
+    </svg>`;
+  }
+  if(type==="waves"){
+    return `<svg class="${cls}" viewBox="0 0 48 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round">
+      <path d="M3 9c4 0 4 4 8 4s4-4 8-4 4 4 8 4 4-4 8-4 4 4 8 4"/>
+      <path d="M3 15c4 0 4 4 8 4s4-4 8-4 4 4 8 4 4-4 8-4 4 4 8 4" opacity=".75"/>
+    </svg>`;
+  }
+  if(type==="scallops"){
+    return `<svg class="${cls}" viewBox="0 0 48 24" fill="none" stroke="currentColor" stroke-width="1.6">
+      <path d="M4 16c2.6 0 2.6-4 5.2-4s2.6 4 5.2 4 2.6-4 5.2-4 2.6 4 5.2 4 2.6-4 5.2-4 2.6 4 5.2 4 2.6-4 5.2-4"/>
+      <path d="M4 11c2.6 0 2.6-4 5.2-4s2.6 4 5.2 4 2.6-4 5.2-4 2.6 4 5.2 4 2.6-4 5.2-4 2.6 4 5.2 4 2.6-4 5.2-4" opacity=".72"/>
+    </svg>`;
+  }
+  return motifSvg("petals", placement);
+}
+function ornamentRowHtml(){
+  const motif = currentMotif();
+  return `<div class="ornament-row">
+    ${motifSvg(motif,"mini")}
+    ${motifSvg(motif,"mini")}
+    ${motifSvg(motif,"mini")}
+  </div>`;
+}
+function headerHtml(eyebrow, title, rightLabel="Date") {
+  const motif = currentMotif();
+  return `
+    <div class="planner-header">
+      <div class="header-left">
+        ${motifSvg(motif,"left")}
+        <p class="eyebrow">${eyebrow}</p>
+        <h2>${title}</h2>
+      </div>
+      <div class="header-right">
+        ${motifSvg(motif,"right")}
+        <div class="date-box">
+          <span>${rightLabel}</span>
+          <div class="date-line"></div>
+        </div>
+      </div>
+    </div>
+    ${ornamentRowHtml()}
+  `;
+}
+function titledBlockHeading(label){
+  return `
+    <div class="title-with-icon">
+      <span class="title-icon">${titleIconSvg()}</span>
+      <h3 class="card-title">${label}</h3>
+    </div>
+  `;
+}
 function makeLines(count=5, className="lines") {
-  const d = document.createElement("div");
-  d.className = className;
-  for (let i=0;i<count;i++) {
-    const line = document.createElement("div");
-    line.className = "line";
+  const d=document.createElement("div");
+  d.className=className;
+  for(let i=0;i<count;i++){
+    const line=document.createElement("div");
+    line.className="line";
     d.appendChild(line);
   }
   return d;
 }
-
 function makeChecks(count=5) {
-  const d = document.createElement("div");
-  d.className = "check-lines";
-  for (let i=0;i<count;i++) {
-    const row = document.createElement("div");
-    row.className = "check-line";
-    const box = document.createElement("span");
-    box.className = "box";
-    const line = document.createElement("span");
-    line.className = "mini-line";
+  const d=document.createElement("div");
+  d.className="check-lines";
+  for(let i=0;i<count;i++){
+    const row=document.createElement("div");
+    row.className="check-line";
+    const box=document.createElement("span");
+    box.className="box";
+    const line=document.createElement("span");
+    line.className="mini-line";
     row.append(box,line);
     d.appendChild(row);
   }
   return d;
-}
-
-function headerHtml(eyebrow, title, rightLabel="Date") {
-  return `
-    <div class="planner-header">
-      <div>
-        <p class="eyebrow">${eyebrow}</p>
-        <h2>${title}</h2>
-      </div>
-      <div class="date-box">
-        <span>${rightLabel}</span>
-        <div class="date-line"></div>
-      </div>
-    </div>
-  `;
 }
 
 function renderDaily(container) {
@@ -79,11 +283,7 @@ function renderDaily(container) {
     card.className = "planner-card";
     if (section.tall) card.classList.add("tall");
     if (idx === activeSections.length - 1 && activeSections.length % 2 === 1) card.classList.add("wide");
-
-    const title = document.createElement("h3");
-    title.className = "card-title";
-    title.textContent = section.label;
-    card.appendChild(title);
+    card.innerHTML = titledBlockHeading(section.label);
     card.appendChild(section.type === "check" ? makeChecks(section.tall ? 8 : 5) : makeLines(section.tall ? 9 : 5));
     grid.appendChild(card);
   });
@@ -97,9 +297,7 @@ function renderWeekly(container) {
   ["Monday","Tuesday","Wednesday","Thursday","Friday","Saturday","Sunday"].forEach(day => {
     const box = document.createElement("section");
     box.className = "week-day";
-    const h = document.createElement("h3");
-    h.textContent = day;
-    box.appendChild(h);
+    box.innerHTML = titledBlockHeading(day);
     box.appendChild(makeLines(day === "Sunday" ? 7 : 5));
     grid.appendChild(box);
   });
@@ -136,20 +334,16 @@ function renderTodo(container) {
 
   const main = document.createElement("section");
   main.className = "todo-main";
-  const h = document.createElement("h3");
-  h.className = "card-title";
-  h.textContent = "Tasks";
-  main.append(h, makeChecks(20));
+  main.innerHTML = titledBlockHeading("Tasks");
+  main.append(makeChecks(20));
 
   const side = document.createElement("aside");
   side.className = "todo-side";
   ["Top 3","Calls / Emails","Errands","Later"].forEach((name,i) => {
     const card = document.createElement("div");
     card.className = "side-card";
-    const t = document.createElement("h3");
-    t.className = "card-title";
-    t.textContent = name;
-    card.append(t, i === 0 ? makeChecks(3) : makeLines(4));
+    card.innerHTML = titledBlockHeading(name);
+    card.append(i === 0 ? makeChecks(3) : makeLines(4));
     side.appendChild(card);
   });
 
@@ -161,10 +355,7 @@ function renderNotes(container) {
   container.innerHTML = headerHtml("NOTES","Notes","Date");
   const sheet = document.createElement("section");
   sheet.className = "notes-sheet";
-  const topic = document.createElement("h3");
-  topic.className = "card-title";
-  topic.textContent = "Topic";
-  sheet.appendChild(topic);
+  sheet.innerHTML = titledBlockHeading("Topic");
   sheet.appendChild(makeLines(24,"notes-lines"));
   container.appendChild(sheet);
 }
@@ -173,14 +364,10 @@ function renderHabit(container) {
   container.innerHTML = headerHtml("HABIT TRACKER","My Habits","Week of");
   const sheet = document.createElement("section");
   sheet.className = "habit-sheet";
-  const title = document.createElement("h3");
-  title.className = "card-title";
-  title.textContent = "Weekly habits";
-  sheet.appendChild(title);
+  sheet.innerHTML = titledBlockHeading("Weekly habits");
 
   const table = document.createElement("div");
   table.className = "habit-table";
-
   const heads = ["Habit","M","T","W","T","F","S","S"];
   heads.forEach((x,i) => {
     const c = document.createElement("div");
@@ -221,6 +408,7 @@ function renderCurrentPage() {
     btn.classList.toggle("active", btn.dataset.page === currentPage);
   });
 
+  el("motifLabel").textContent = currentMotif().charAt(0).toUpperCase() + currentMotif().slice(1);
   applyStyleControls(false);
 }
 
@@ -249,7 +437,7 @@ function renderSectionControls() {
 function renderPalette() {
   const wrap = el("palette");
   wrap.innerHTML = "";
-  extractedPalette.forEach((color,idx) => {
+  extractedPalette.slice(0,5).forEach((color,idx) => {
     const swatch = document.createElement("button");
     swatch.className = "swatch";
     swatch.style.background = color;
@@ -276,6 +464,7 @@ function applyStyleControls(save=true) {
   const title = planner.querySelector(".planner-header h2");
   if (title) title.style.fontFamily = el("headingFont").value;
   planner.className = "planner-page " + el("stylePreset").value;
+  el("motifLabel").textContent = currentMotif().charAt(0).toUpperCase() + currentMotif().slice(1);
   if (save) autosave();
 }
 
@@ -285,7 +474,6 @@ function pageDimensionsPx() {
   if (size==="a5") return {w:420,h:595};
   return {w:612,h:792};
 }
-
 function pageDimensionsMm() {
   const size = el("pageSize").value;
   if (size==="a4") return {w:210,h:297};
@@ -298,32 +486,6 @@ function applyPageSize() {
   planner.style.width = d.w + "px";
   planner.style.minHeight = d.h + "px";
   autosave();
-}
-
-function averagePaletteFromImage(img,count=5) {
-  const canvas = document.createElement("canvas");
-  const ctx = canvas.getContext("2d",{willReadFrequently:true});
-  canvas.width=120; canvas.height=120;
-  ctx.drawImage(img,0,0,120,120);
-  const data = ctx.getImageData(0,0,120,120).data;
-  const buckets = new Map();
-
-  for (let i=0;i<data.length;i+=16) {
-    if (data[i+3] < 180) continue;
-    const r = Math.round(data[i]/40)*40;
-    const g = Math.round(data[i+1]/40)*40;
-    const b = Math.round(data[i+2]/40)*40;
-    const key = [Math.min(r,255),Math.min(g,255),Math.min(b,255)].join(",");
-    buckets.set(key,(buckets.get(key)||0)+1);
-  }
-
-  return [...buckets.entries()]
-    .sort((a,b)=>b[1]-a[1])
-    .slice(0,count)
-    .map(([k]) => {
-      const [r,g,b] = k.split(",").map(Number);
-      return "#" + [r,g,b].map(v=>v.toString(16).padStart(2,"0")).join("");
-    });
 }
 
 el("imageInput").addEventListener("change",e => {
@@ -342,16 +504,20 @@ el("extractPaletteBtn").addEventListener("click",() => {
   if (!el("rightsCheck").checked) return showToast("Please confirm the image-use checkbox first.");
   const img = el("imagePreview");
   if (!img.src) return showToast("Upload an inspiration image first.");
-  extractedPalette = averagePaletteFromImage(img,5);
-  if (extractedPalette.length < 3) return showToast("Could not extract enough colors.");
-  while (extractedPalette.length < 5) extractedPalette.push("#d9d4c9");
+
+  const raw = averagePaletteFromImage(img,5);
+  const soft = buildSoftPalette(raw);
+  extractedPalette = soft;
+  detectedMotif = chooseMotifFromPalette(soft);
+
   renderPalette();
-  el("bgColor").value = extractedPalette[0];
-  el("accentColor").value = extractedPalette[1];
-  el("textColor").value = extractedPalette[2];
-  el("borderColor").value = extractedPalette[3];
+  el("bgColor").value = soft[0];
+  el("accentColor").value = soft[1];
+  el("textColor").value = soft[2];
+  el("borderColor").value = soft[3];
+  renderCurrentPage();
   applyStyleControls();
-  showToast("Palette applied to all 6 pages.");
+  showToast(`Soft palette applied. Motif: ${currentMotif()}.`);
 });
 
 document.querySelectorAll("#pageTabs button").forEach(btn => {
@@ -362,10 +528,10 @@ document.querySelectorAll("#pageTabs button").forEach(btn => {
   });
 });
 
-["bgColor","accentColor","textColor","borderColor","cornerRadius","spacing","headingFont","bodyFont","stylePreset"]
+["bgColor","accentColor","textColor","borderColor","cornerRadius","spacing","headingFont","bodyFont","stylePreset","motifStyle"]
   .forEach(id => el(id).addEventListener("input",() => {
-    applyStyleControls();
     renderCurrentPage();
+    applyStyleControls();
   }));
 
 el("pageSize").addEventListener("change",() => {
@@ -408,19 +574,66 @@ el("exportPngBtn").addEventListener("click",async() => {
   }
 });
 
-// -------- VECTOR PDF HELPERS --------
-function hexToRgb(hex) {
-  const clean = hex.replace("#","");
-  const value = parseInt(clean.length===3 ? clean.split("").map(c=>c+c).join("") : clean,16);
-  return { r:(value>>16)&255, g:(value>>8)&255, b:value&255 };
-}
+// --- PDF helpers ---
 function setPdfColor(pdf,method,hex) {
   const {r,g,b} = hexToRgb(hex);
   pdf[method](r,g,b);
 }
+function pdfCfg() {
+  const d=pageDimensionsMm();
+  return {
+    w:d.w,h:d.h,m:d.w*.075,
+    bg:el("bgColor").value,
+    accent:el("accentColor").value,
+    text:el("textColor").value,
+    border:el("borderColor").value,
+    motif: currentMotif()
+  };
+}
+function pdfBase(pdf,cfg) {
+  setPdfColor(pdf,"setFillColor",cfg.bg);
+  pdf.rect(0,0,cfg.w,cfg.h,"F");
+}
+function drawPdfSimpleMotif(pdf,cfg,x,y,scale=1){
+  const type=cfg.motif;
+  setPdfColor(pdf,"setDrawColor",cfg.accent);
+  setPdfColor(pdf,"setFillColor",cfg.accent);
+  pdf.setLineWidth(0.25);
+  if(type==="petals"){
+    pdf.circle(x,y,0.8*scale,"F");
+    pdf.ellipse(x,y-1.8*scale,1.2*scale,0.8*scale,"S");
+    pdf.ellipse(x,y+1.8*scale,1.2*scale,0.8*scale,"S");
+    pdf.ellipse(x-1.8*scale,y,0.8*scale,1.2*scale,"S");
+    pdf.ellipse(x+1.8*scale,y,0.8*scale,1.2*scale,"S");
+  } else if(type==="leaves"){
+    pdf.ellipse(x-1.6*scale,y,1.8*scale,1.0*scale,"S");
+    pdf.ellipse(x+1.8*scale,y-0.4*scale,1.8*scale,1.0*scale,"S");
+    pdf.line(x-2.3*scale,y+1.3*scale,x+2.7*scale,y-1.2*scale);
+  } else if(type==="bows"){
+    pdf.ellipse(x-2*scale,y,1.6*scale,1.2*scale,"S");
+    pdf.ellipse(x+2*scale,y,1.6*scale,1.2*scale,"S");
+    pdf.circle(x,y,0.8*scale,"S");
+    pdf.line(x-0.5*scale,y+0.8*scale,x-2*scale,y+3*scale);
+    pdf.line(x+0.5*scale,y+0.8*scale,x+2*scale,y+3*scale);
+  } else if(type==="stars"){
+    pdf.line(x-2*scale,y,x+2*scale,y);
+    pdf.line(x,y-2*scale,x,y+2*scale);
+    pdf.line(x-1.4*scale,y-1.4*scale,x+1.4*scale,y+1.4*scale);
+    pdf.line(x-1.4*scale,y+1.4*scale,x+1.4*scale,y-1.4*scale);
+  } else if(type==="waves"){
+    pdf.lines([[1.2*scale,-1.2*scale],[1.2*scale,1.2*scale],[1.2*scale,-1.2*scale],[1.2*scale,1.2*scale],[1.2*scale,-1.2*scale]],x-3*scale,y);
+    pdf.lines([[1.2*scale,-1.2*scale],[1.2*scale,1.2*scale],[1.2*scale,-1.2*scale],[1.2*scale,1.2*scale],[1.2*scale,-1.2*scale]],x-3*scale,y+2.4*scale);
+  } else if(type==="scallops"){
+    for(let i=0;i<4;i++) pdf.ellipse(x-3*scale+i*2*scale,y,1*scale,0.8*scale,"S");
+    for(let i=0;i<4;i++) pdf.ellipse(x-3*scale+i*2*scale,y+1.7*scale,1*scale,0.8*scale,"S");
+  }
+}
 function drawPdfHeader(pdf, title, eyebrow, right, cfg) {
   const {w,h,m,accent,text,border} = cfg;
   const top = h*.07;
+  drawPdfSimpleMotif(pdf,cfg,m+5,top-1.4,0.7);
+  drawPdfSimpleMotif(pdf,cfg,w-m-8,top-1.4,0.7);
+
   setPdfColor(pdf,"setTextColor",accent);
   pdf.setFont("helvetica","bold");
   pdf.setFontSize(Math.max(7,w*.04));
@@ -442,7 +655,13 @@ function drawPdfHeader(pdf, title, eyebrow, right, cfg) {
   setPdfColor(pdf,"setDrawColor",accent);
   pdf.setLineWidth(.5);
   pdf.line(m,top+h*.058,w-m,top+h*.058);
-  return top+h*.078;
+
+  // centered ornament row
+  drawPdfSimpleMotif(pdf,cfg,w/2-10,top+h*.067,0.55);
+  drawPdfSimpleMotif(pdf,cfg,w/2,top+h*.067,0.55);
+  drawPdfSimpleMotif(pdf,cfg,w/2+10,top+h*.067,0.55);
+
+  return top+h*.082;
 }
 function drawPdfFooter(pdf,cfg) {
   const {w,h,accent} = cfg;
@@ -464,19 +683,12 @@ function drawPdfLineSet(pdf,x,y,w,count,gap,border,checks=false) {
     }
   }
 }
-function pdfCfg() {
-  const d=pageDimensionsMm();
-  return {
-    w:d.w,h:d.h,m:d.w*.075,
-    bg:el("bgColor").value,
-    accent:el("accentColor").value,
-    text:el("textColor").value,
-    border:el("borderColor").value
-  };
-}
-function pdfBase(pdf,cfg) {
-  setPdfColor(pdf,"setFillColor",cfg.bg);
-  pdf.rect(0,0,cfg.w,cfg.h,"F");
+function drawPdfTitleWithIcon(pdf,label,x,y,cfg){
+  drawPdfSimpleMotif(pdf,cfg,x+2.5,y-1.1,0.42);
+  setPdfColor(pdf,"setTextColor",cfg.accent);
+  pdf.setFont("helvetica","bold");
+  pdf.setFontSize(Math.max(6.7,cfg.w*.036));
+  pdf.text(label.toUpperCase(),x+7,y);
 }
 
 function drawDailyPdf(pdf,cfg) {
@@ -496,11 +708,9 @@ function drawDailyPdf(pdf,cfg) {
     setPdfColor(pdf,"setDrawColor",cfg.border);
     pdf.setLineWidth(.25);
     pdf.roundedRect(x,y,colW,cardH,4,4,"S");
-    setPdfColor(pdf,"setTextColor",cfg.accent);
-    pdf.setFont("helvetica","bold"); pdf.setFontSize(Math.max(7,cfg.w*.04));
-    pdf.text(s.label.toUpperCase(),x+5,y+8);
+    drawPdfTitleWithIcon(pdf,s.label,x+2,y+8,cfg);
     const count=s.tall?8:5;
-    drawPdfLineSet(pdf,x+5,y+17,colW-10,count,(cardH-24)/count,cfg.border,s.type==="check");
+    drawPdfLineSet(pdf,x+5,y+18,colW-10,count,(cardH-25)/count,cfg.border,s.type==="check");
   });
   drawPdfFooter(pdf,cfg);
 }
@@ -523,10 +733,8 @@ function drawWeeklyPdf(pdf,cfg) {
     }
     setPdfColor(pdf,"setDrawColor",cfg.border); pdf.setLineWidth(.25);
     pdf.roundedRect(x,y,w,cardH,4,4,"S");
-    setPdfColor(pdf,"setTextColor",cfg.accent);
-    pdf.setFont("helvetica","bold"); pdf.setFontSize(Math.max(7,cfg.w*.038));
-    pdf.text(day.toUpperCase(),x+5,y+8);
-    drawPdfLineSet(pdf,x+5,y+16,w-10,5,(cardH-22)/5,cfg.border,false);
+    drawPdfTitleWithIcon(pdf,day,x+2,y+8,cfg);
+    drawPdfLineSet(pdf,x+5,y+17,w-10,5,(cardH-23)/5,cfg.border,false);
   });
   drawPdfFooter(pdf,cfg);
 }
@@ -571,19 +779,17 @@ function drawTodoPdf(pdf,cfg) {
 
   setPdfColor(pdf,"setDrawColor",cfg.border); pdf.setLineWidth(.25);
   pdf.roundedRect(cfg.m,startY,mainW,h,4,4,"S");
-  setPdfColor(pdf,"setTextColor",cfg.accent); pdf.setFont("helvetica","bold"); pdf.setFontSize(Math.max(7,cfg.w*.04));
-  pdf.text("TASKS",cfg.m+5,startY+8);
-  drawPdfLineSet(pdf,cfg.m+5,startY+18,mainW-10,20,(h-26)/20,cfg.border,true);
+  drawPdfTitleWithIcon(pdf,"Tasks",cfg.m+2,startY+8,cfg);
+  drawPdfLineSet(pdf,cfg.m+5,startY+19,mainW-10,20,(h-28)/20,cfg.border,true);
 
   const sx=cfg.m+mainW+gap;
   pdf.roundedRect(sx,startY,sideW,h,4,4,"S");
-  const labels=["TOP 3","CALLS / EMAILS","ERRANDS","LATER"];
+  const labels=["Top 3","Calls / Emails","Errands","Later"];
   const blockH=h/4;
   labels.forEach((lab,i)=>{
     const y=startY+i*blockH;
-    setPdfColor(pdf,"setTextColor",cfg.accent); pdf.setFont("helvetica","bold"); pdf.setFontSize(Math.max(6,cfg.w*.032));
-    pdf.text(lab,sx+5,y+8);
-    drawPdfLineSet(pdf,sx+5,y+16,sideW-10,i===0?3:4,(blockH-22)/(i===0?3:4),cfg.border,i===0);
+    drawPdfTitleWithIcon(pdf,lab,sx+2,y+8,cfg);
+    drawPdfLineSet(pdf,sx+5,y+17,sideW-10,i===0?3:4,(blockH-23)/(i===0?3:4),cfg.border,i===0);
     if(i<3){ setPdfColor(pdf,"setDrawColor",cfg.border); pdf.line(sx+4,y+blockH,sx+sideW-4,y+blockH); }
   });
   drawPdfFooter(pdf,cfg);
@@ -595,9 +801,8 @@ function drawNotesPdf(pdf,cfg) {
   const h=cfg.h-startY-cfg.h*.075;
   setPdfColor(pdf,"setDrawColor",cfg.border); pdf.setLineWidth(.25);
   pdf.roundedRect(cfg.m,startY,cfg.w-cfg.m*2,h,4,4,"S");
-  setPdfColor(pdf,"setTextColor",cfg.accent); pdf.setFont("helvetica","bold"); pdf.setFontSize(Math.max(7,cfg.w*.04));
-  pdf.text("TOPIC",cfg.m+5,startY+8);
-  drawPdfLineSet(pdf,cfg.m+5,startY+18,cfg.w-cfg.m*2-10,24,(h-26)/24,cfg.border,false);
+  drawPdfTitleWithIcon(pdf,"Topic",cfg.m+2,startY+8,cfg);
+  drawPdfLineSet(pdf,cfg.m+5,startY+19,cfg.w-cfg.m*2-10,24,(h-28)/24,cfg.border,false);
   drawPdfFooter(pdf,cfg);
 }
 
@@ -658,7 +863,7 @@ el("exportPdfBtn").addEventListener("click",async() => {
     if(previewWindow){
       previewWindow.document.write(
         "<!doctype html><title>Preparing PDF...</title><meta name='viewport' content='width=device-width,initial-scale=1'>" +
-        "<body style='font-family:system-ui;padding:30px'>Preparing your 6-page planner collection…</body>"
+        "<body style='font-family:system-ui;padding:30px'>Preparing your styled 6-page planner collection…</body>"
       );
     }
   }
@@ -683,7 +888,7 @@ el("exportPdfBtn").addEventListener("click",async() => {
 
     const blob=pdf.output("blob");
     const url=URL.createObjectURL(blob);
-    const fileName=`planner-collection-${el("pageSize").value}-6-pages.pdf`;
+    const fileName=`planner-collection-styled-${el("pageSize").value}.pdf`;
 
     if(isiPadOrIPhone){
       if(previewWindow) previewWindow.location.href=url;
@@ -692,12 +897,12 @@ el("exportPdfBtn").addEventListener("click",async() => {
         a.href=url; a.target="_blank"; a.rel="noopener";
         document.body.appendChild(a); a.click(); a.remove();
       }
-      showToast("6-page PDF opened. Use Share → Save to Files.");
+      showToast("Styled 6-page PDF opened. Use Share → Save to Files.");
     } else {
       const a=document.createElement("a");
       a.href=url; a.download=fileName;
       document.body.appendChild(a); a.click(); a.remove();
-      showToast("6-page PDF exported.");
+      showToast("Styled 6-page PDF exported.");
     }
     setTimeout(()=>URL.revokeObjectURL(url),120000);
   }catch(err){
@@ -711,11 +916,13 @@ el("exportPdfBtn").addEventListener("click",async() => {
 
 function projectData(){
   return {
-    version:3,
+    version:4,
     currentPage,
     activeSections,
     pageSize:el("pageSize").value,
     stylePreset:el("stylePreset").value,
+    motifStyle:el("motifStyle").value,
+    detectedMotif,
     palette:{
       background:el("bgColor").value,
       accent:el("accentColor").value,
@@ -730,19 +937,19 @@ function projectData(){
     spacing:el("spacing").value
   };
 }
-
 function autosave(){
   localStorage.setItem("plannerStudioProject",JSON.stringify(projectData()));
 }
-
 function loadSaved(){
   try{
     const saved=JSON.parse(localStorage.getItem("plannerStudioProject"));
     if(!saved) return;
     currentPage=saved.currentPage || currentPage;
     activeSections=saved.activeSections || activeSections;
+    detectedMotif=saved.detectedMotif || detectedMotif;
     if(saved.pageSize) el("pageSize").value=saved.pageSize;
     if(saved.stylePreset) el("stylePreset").value=saved.stylePreset;
+    if(saved.motifStyle) el("motifStyle").value=saved.motifStyle;
     if(saved.palette){
       el("bgColor").value=saved.palette.background || el("bgColor").value;
       el("accentColor").value=saved.palette.accent || el("accentColor").value;

@@ -20,7 +20,7 @@ function showToast(msg) {
   const t = el("toast");
   t.textContent = msg;
   t.classList.remove("hidden");
-  setTimeout(() => t.classList.add("hidden"), 2200);
+  setTimeout(() => t.classList.add("hidden"), 2600);
 }
 
 function renderSectionControls() {
@@ -124,16 +124,15 @@ function applyStyleControls() {
   planner.style.setProperty("--page-gap", el("spacing").value + "px");
   planner.style.fontFamily = el("bodyFont").value;
   planner.querySelector(".planner-header h2").style.fontFamily = el("headingFont").value;
-
   planner.className = "planner-page " + el("stylePreset").value;
   autosave();
 }
 
 function pageDimensions() {
   const size = el("pageSize").value;
-  if (size === "a4") return { w: 595, h: 842, mmW: 210, mmH: 297, pdf: "a4" };
-  if (size === "a5") return { w: 420, h: 595, mmW: 148, mmH: 210, pdf: "a5" };
-  return { w: 612, h: 792, mmW: 215.9, mmH: 279.4, pdf: "letter" };
+  if (size === "a4") return { w: 595, h: 842, mmW: 210, mmH: 297 };
+  if (size === "a5") return { w: 420, h: 595, mmW: 148, mmH: 210 };
+  return { w: 612, h: 792, mmW: 215.9, mmH: 279.4 };
 }
 
 function applyPageSize() {
@@ -146,15 +145,13 @@ function applyPageSize() {
 function averagePaletteFromImage(img, count=5) {
   const canvas = document.createElement("canvas");
   const ctx = canvas.getContext("2d", { willReadFrequently: true });
-  const w = 120, h = 120;
-  canvas.width = w; canvas.height = h;
-  ctx.drawImage(img, 0, 0, w, h);
-  const data = ctx.getImageData(0, 0, w, h).data;
-
+  canvas.width = 120; canvas.height = 120;
+  ctx.drawImage(img, 0, 0, 120, 120);
+  const data = ctx.getImageData(0, 0, 120, 120).data;
   const buckets = new Map();
+
   for (let i=0;i<data.length;i+=16) {
-    const a = data[i+3];
-    if (a < 180) continue;
+    if (data[i+3] < 180) continue;
     const r = Math.round(data[i]/40)*40;
     const g = Math.round(data[i+1]/40)*40;
     const b = Math.round(data[i+2]/40)*40;
@@ -222,6 +219,7 @@ el("regenerateBtn").addEventListener("click", () => {
 });
 
 async function plannerCanvas(scale=3) {
+  if (!window.html2canvas) throw new Error("html2canvas did not load.");
   return await html2canvas(planner, {
     scale,
     backgroundColor: el("bgColor").value,
@@ -231,32 +229,68 @@ async function plannerCanvas(scale=3) {
 }
 
 el("exportPngBtn").addEventListener("click", async () => {
-  const canvas = await plannerCanvas(3);
-  const link = document.createElement("a");
-  link.download = `planner-${el("pageSize").value}.png`;
-  link.href = canvas.toDataURL("image/png");
-  link.click();
-  showToast("PNG exported.");
+  try {
+    showToast("Preparing PNG...");
+    const canvas = await plannerCanvas(3);
+    const link = document.createElement("a");
+    link.download = `planner-${el("pageSize").value}.png`;
+    link.href = canvas.toDataURL("image/png");
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    showToast("PNG exported.");
+  } catch (err) {
+    console.error(err);
+    showToast("PNG export failed. Please refresh and try again.");
+  }
 });
 
 el("exportPdfBtn").addEventListener("click", async () => {
-  const { jsPDF } = window.jspdf;
-  const d = pageDimensions();
-  const canvas = await plannerCanvas(3);
-  const imgData = canvas.toDataURL("image/png");
-  const pdf = new jsPDF({
-    orientation: "portrait",
-    unit: "mm",
-    format: [d.mmW, d.mmH]
-  });
-  pdf.addImage(imgData, "PNG", 0, 0, d.mmW, d.mmH, undefined, "FAST");
-  pdf.save(`planner-${el("pageSize").value}.pdf`);
-  showToast("PDF exported successfully.");
+  try {
+    if (!window.jspdf || !window.jspdf.jsPDF) {
+      throw new Error("jsPDF did not load.");
+    }
+
+    showToast("Preparing PDF...");
+    const { jsPDF } = window.jspdf;
+    const d = pageDimensions();
+    const canvas = await plannerCanvas(2.5);
+    const imgData = canvas.toDataURL("image/jpeg", 0.95);
+
+    const pdf = new jsPDF({
+      orientation: "portrait",
+      unit: "mm",
+      format: [d.mmW, d.mmH],
+      compress: true
+    });
+
+    pdf.addImage(imgData, "JPEG", 0, 0, d.mmW, d.mmH, undefined, "FAST");
+
+    const isiPadOrIPhone = /iPad|iPhone|iPod/.test(navigator.userAgent) ||
+      (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
+
+    if (isiPadOrIPhone) {
+      const blob = pdf.output("blob");
+      const url = URL.createObjectURL(blob);
+      const opened = window.open(url, "_blank");
+      if (!opened) {
+        window.location.href = url;
+      }
+      setTimeout(() => URL.revokeObjectURL(url), 60000);
+      showToast("PDF opened. Use Share → Save to Files.");
+    } else {
+      pdf.save(`planner-${el("pageSize").value}.pdf`);
+      showToast("PDF exported successfully.");
+    }
+  } catch (err) {
+    console.error("PDF export error:", err);
+    showToast("PDF export failed. Refresh the page and try again.");
+  }
 });
 
 function projectData() {
   return {
-    version: 1,
+    version: 2,
     activeSections,
     pageSize: el("pageSize").value,
     stylePreset: el("stylePreset").value,

@@ -171,10 +171,12 @@ button { cursor: pointer; border: 0; border-radius: 10px; padding: 10px 14px; }
   z-index:0;
   pointer-events:none;
 }
-.decor-plate { position:absolute; }
-.decor-fragment { position:absolute; background-size:cover; background-position:center; background-repeat:no-repeat; mix-blend-mode:multiply; filter:saturate(.92) contrast(1.03); }
-.decor-fragment.soft { filter:saturate(.9) contrast(1.02); }
-.decor-fragment.band { filter:saturate(.96) contrast(1.04); }
+.decor-wash { position:absolute; inset:0 0 auto 0; height:96px; background:linear-gradient(180deg,var(--header-wash), rgba(255,255,255,0)); border-radius:0 0 28px 28px; opacity:.96; }
+.decor-vector, .decor-stroke { position:absolute; pointer-events:none; }
+.decor-vector svg, .decor-stroke svg { width:100%; height:100%; display:block; overflow:visible; }
+.decor-vector.side { mix-blend-mode:multiply; }
+.decor-vector.header, .decor-vector.footer, .decor-vector.accent { mix-blend-mode:multiply; }
+.decor-vector.right { transform:scaleX(-1); transform-origin:center; }
 .planner-content,
 .planner-footer {
   position:relative;

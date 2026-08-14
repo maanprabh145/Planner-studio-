@@ -259,145 +259,248 @@ function makeChecks(count=5) {
 }
 
 
-function buildImageDerivedDecorAssets(img){
-  if(!img || !img.src) return null;
-  const fullW = img.naturalWidth || img.width || 1200;
-  const fullH = img.naturalHeight || img.height || 1200;
-  const crops = {
-    nw:{x:0.00,y:0.00,w:0.40,h:0.52,mode:'silhouette',outW:280,outH:220},
-    north:{x:0.22,y:0.00,w:0.52,h:0.38,mode:'wash',outW:320,outH:170},
-    eastTall:{x:0.66,y:0.00,w:0.24,h:0.90,mode:'band',outW:150,outH:440},
-    westTall:{x:0.00,y:0.10,w:0.26,h:0.84,mode:'band',outW:150,outH:460},
-    center:{x:0.25,y:0.18,w:0.42,h:0.48,mode:'silhouette',outW:280,outH:220},
-    south:{x:0.18,y:0.56,w:0.58,h:0.34,mode:'wash',outW:320,outH:170},
-    se:{x:0.56,y:0.48,w:0.38,h:0.44,mode:'silhouette',outW:260,outH:200}
-  };
-  const assetMap = {};
-  Object.entries(crops).forEach(([key,crop])=> assetMap[key] = makeDerivedFragment(img, crop));
-  return { assets: assetMap, signature: img.src.slice(0,80) };
-}
 
-function makeDerivedFragment(img, crop){
-  const canvas=document.createElement('canvas');
-  const ctx=canvas.getContext('2d',{willReadFrequently:true});
-  canvas.width = crop.outW || 280;
-  canvas.height = crop.outH || 220;
-  const sx=(img.naturalWidth||img.width) * crop.x;
-  const sy=(img.naturalHeight||img.height) * crop.y;
-  const sw=(img.naturalWidth||img.width) * crop.w;
-  const sh=(img.naturalHeight||img.height) * crop.h;
+function makeCropCanvas(img, crop){
+  const canvas = document.createElement('canvas');
+  const ctx = canvas.getContext('2d', {willReadFrequently:true});
+  canvas.width = crop.sampleW || 92;
+  canvas.height = crop.sampleH || 92;
+  const sourceW = img.naturalWidth || img.width;
+  const sourceH = img.naturalHeight || img.height;
+  const sx = sourceW * crop.x, sy = sourceH * crop.y, sw = sourceW * crop.w, sh = sourceH * crop.h;
   ctx.drawImage(img, sx, sy, sw, sh, 0, 0, canvas.width, canvas.height);
-  const id = ctx.getImageData(0,0,canvas.width,canvas.height);
-  const d = id.data;
-  let lumSamples=[];
-  for(let i=0;i<d.length;i+=16){
-    const hsl=rgbToHsl(d[i],d[i+1],d[i+2]);
-    lumSamples.push(hsl.l);
-  }
-  lumSamples.sort((a,b)=>b-a);
-  const localBg = lumSamples[Math.floor(lumSamples.length*0.18)] || 82;
-
-  const getL = (x,y)=>{
-    const xx = clamp(x,0,canvas.width-1), yy = clamp(y,0,canvas.height-1);
-    const idx = (Math.round(yy)*canvas.width + Math.round(xx))*4;
-    const hsl=rgbToHsl(d[idx],d[idx+1],d[idx+2]);
-    return hsl.l;
-  };
-
-  for(let y=0;y<canvas.height;y++){
-    for(let x=0;x<canvas.width;x++){
-      const i=(y*canvas.width+x)*4;
-      const r=d[i], g=d[i+1], b=d[i+2];
-      const hsl=rgbToHsl(r,g,b);
-      const lumDiff=Math.abs(hsl.l - localBg)/100;
-      const satScore=hsl.s/100;
-      const edge=((Math.abs(getL(x-1,y)-getL(x+1,y)) + Math.abs(getL(x,y-1)-getL(x,y+1)))/200);
-      let presence = satScore*0.55 + lumDiff*0.95;
-      if(crop.mode==='wash') presence = satScore*0.42 + lumDiff*0.65 + edge*0.4;
-      if(crop.mode==='band') presence = satScore*0.38 + lumDiff*0.52 + edge*0.9;
-      const threshold = crop.mode==='silhouette' ? 0.14 : crop.mode==='band' ? 0.18 : 0.16;
-      if(presence < threshold){
-        d[i+3] = 0;
-        continue;
-      }
-      let s = clamp(hsl.s * (crop.mode==='wash' ? 0.62 : 0.76), 14, 56);
-      let l = clamp(hsl.l + (crop.mode==='band' ? -4 : 0), 28, 82);
-      let softened = hexToRgb(blendHex(hslToHex(hsl.h, s, l), '#fbf7f0', crop.mode==='wash' ? 0.18 : 0.10));
-      d[i] = softened.r;
-      d[i+1] = softened.g;
-      d[i+2] = softened.b;
-      const alphaBase = crop.mode==='silhouette' ? 168 : crop.mode==='band' ? 148 : 112;
-      d[i+3] = clamp(Math.round(alphaBase * Math.min(1, (presence-threshold)/(0.55))), 0, 180);
+  return {canvas, ctx, w:canvas.width, h:canvas.height};
+}
+function avgBorderColor(data, w, h){
+  let r=0,g=0,b=0,n=0;
+  const add=(x,y)=>{ const i=(y*w+x)*4; r+=data[i]; g+=data[i+1]; b+=data[i+2]; n++; };
+  for(let x=0;x<w;x+=2){ add(x,0); add(x,h-1); }
+  for(let y=2;y<h-2;y+=2){ add(0,y); add(w-1,y); }
+  return {r:r/n, g:g/n, b:b/n};
+}
+function colorDistance(r,g,b,bg){
+  return Math.sqrt((r-bg.r)**2 + (g-bg.g)**2 + (b-bg.b)**2);
+}
+function smoothMask(mask,w,h,threshold=5){
+  const out = new Uint8Array(mask.length);
+  for(let y=1;y<h-1;y++){
+    for(let x=1;x<w-1;x++){
+      let sum = 0;
+      for(let yy=-1;yy<=1;yy++) for(let xx=-1;xx<=1;xx++) sum += mask[(y+yy)*w + (x+xx)];
+      out[y*w+x] = sum >= threshold ? 1 : 0;
     }
   }
-  ctx.putImageData(id,0,0);
-  return canvas.toDataURL('image/png');
+  return out;
 }
-
+function connectedComponents(mask,w,h){
+  const seen = new Uint8Array(mask.length);
+  const comps = [];
+  const dirs = [[1,0],[-1,0],[0,1],[0,-1]];
+  for(let i=0;i<mask.length;i++){
+    if(!mask[i] || seen[i]) continue;
+    const queue = [i];
+    seen[i] = 1;
+    const pts = [];
+    while(queue.length){
+      const cur = queue.pop();
+      const x = cur % w, y = Math.floor(cur / w);
+      pts.push({x,y});
+      for(const [dx,dy] of dirs){
+        const nx = x + dx, ny = y + dy;
+        if(nx<0 || ny<0 || nx>=w || ny>=h) continue;
+        const ni = ny*w + nx;
+        if(mask[ni] && !seen[ni]){ seen[ni] = 1; queue.push(ni); }
+      }
+    }
+    if(pts.length >= Math.max(18, Math.round(w*h*0.004))) comps.push(pts);
+  }
+  return comps.sort((a,b)=>b.length-a.length);
+}
+function smoothArray(arr){
+  return arr.map((v,i)=>{
+    const prev = arr[Math.max(0,i-1)], next = arr[Math.min(arr.length-1,i+1)];
+    return (prev + v + next) / 3;
+  });
+}
+function fillSeriesGaps(arr, fallback=0){
+  const out = arr.slice();
+  for(let i=0;i<out.length;i++){
+    if(Number.isFinite(out[i])) continue;
+    let left=i-1, right=i+1;
+    while(left>=0 && !Number.isFinite(out[left])) left--;
+    while(right<out.length && !Number.isFinite(out[right])) right++;
+    if(left>=0 && right<out.length) out[i] = (out[left] + out[right]) / 2;
+    else if(left>=0) out[i] = out[left];
+    else if(right<out.length) out[i] = out[right];
+    else out[i] = fallback;
+  }
+  return out;
+}
+function componentToShape(points){
+  const n = points.length;
+  let cx=0, cy=0;
+  points.forEach(p => { cx += p.x; cy += p.y; });
+  cx /= n; cy /= n;
+  let sxx=0, sxy=0, syy=0;
+  points.forEach(p => {
+    const dx = p.x - cx, dy = p.y - cy;
+    sxx += dx*dx; sxy += dx*dy; syy += dy*dy;
+  });
+  const angle = 0.5 * Math.atan2(2*sxy, sxx - syy);
+  const ux = Math.cos(angle), uy = Math.sin(angle);
+  const vx = -uy, vy = ux;
+  const transformed = points.map(p => {
+    const dx = p.x - cx, dy = p.y - cy;
+    return {u:dx*ux + dy*uy, v:dx*vx + dy*vy};
+  });
+  let uMin=Infinity, uMax=-Infinity, vMin=Infinity, vMax=-Infinity;
+  transformed.forEach(t => { if(t.u<uMin) uMin=t.u; if(t.u>uMax) uMax=t.u; if(t.v<vMin) vMin=t.v; if(t.v>vMax) vMax=t.v; });
+  const len = uMax - uMin, thick = vMax - vMin;
+  if(len < 5 || thick < 2.4) return null;
+  const aspect = len / Math.max(thick, 1);
+  const bins = Math.max(7, Math.min(15, Math.round(len / 3.5)));
+  const top = Array(bins).fill(-Infinity);
+  const bottom = Array(bins).fill(Infinity);
+  const center = Array(bins).fill(0);
+  const count = Array(bins).fill(0);
+  transformed.forEach(t => {
+    const idx = Math.max(0, Math.min(bins-1, Math.floor(((t.u - uMin) / Math.max(len, 0.001)) * bins)));
+    if(t.v > top[idx]) top[idx] = t.v;
+    if(t.v < bottom[idx]) bottom[idx] = t.v;
+    center[idx] += t.v; count[idx]++;
+  });
+  for(let i=0;i<bins;i++) if(count[i]) center[i] /= count[i];
+  const topF = smoothArray(fillSeriesGaps(top, 0));
+  const bottomF = smoothArray(fillSeriesGaps(bottom, 0));
+  const centerF = smoothArray(fillSeriesGaps(center, 0));
+  const outlineTop = [], outlineBottom = [], stem = [];
+  for(let i=0;i<bins;i++){
+    const u = uMin + (len * (i/(bins-1)));
+    const toPt = (vv) => ({ x: cx + ux*u + vx*vv, y: cy + uy*u + vy*vv });
+    outlineTop.push(toPt(topF[i] + 0.6));
+    outlineBottom.unshift(toPt(bottomF[i] - 0.6));
+    stem.push(toPt(centerF[i]));
+  }
+  return { outline:[...outlineTop, ...outlineBottom], stem, aspect, area:n, cx, cy };
+}
+function pointsToSmoothPath(points, closed=true){
+  if(!points || points.length < (closed ? 3 : 2)) return '';
+  let d = `M ${points[0].x.toFixed(1)} ${points[0].y.toFixed(1)}`;
+  for(let i=1;i<points.length;i++){
+    const prev = points[i-1], curr = points[i];
+    const mx = (prev.x + curr.x) / 2, my = (prev.y + curr.y) / 2;
+    d += ` Q ${prev.x.toFixed(1)} ${prev.y.toFixed(1)} ${mx.toFixed(1)} ${my.toFixed(1)}`;
+  }
+  if(closed){
+    const last = points[points.length-1], first = points[0];
+    const mx = (last.x + first.x) / 2, my = (last.y + first.y) / 2;
+    d += ` Q ${last.x.toFixed(1)} ${last.y.toFixed(1)} ${mx.toFixed(1)} ${my.toFixed(1)} Z`;
+  } else {
+    d += ` T ${points[points.length-1].x.toFixed(1)} ${points[points.length-1].y.toFixed(1)}`;
+  }
+  return d;
+}
+function scalePts(points, sx, sy){ return points.map(p => ({x:p.x*sx, y:p.y*sy})); }
+function extractShapesFromCrop(img, crop){
+  const {ctx,w,h} = makeCropCanvas(img, crop);
+  const imageData = ctx.getImageData(0,0,w,h);
+  const data = imageData.data;
+  const bg = avgBorderColor(data, w, h);
+  let mask = new Uint8Array(w*h);
+  const lumAt = (x,y) => {
+    const i=(y*w+x)*4; return 0.2126*data[i] + 0.7152*data[i+1] + 0.0722*data[i+2];
+  };
+  for(let y=1;y<h-1;y++){
+    for(let x=1;x<w-1;x++){
+      const i=(y*w+x)*4;
+      const r=data[i], g=data[i+1], b=data[i+2];
+      const hsl = rgbToHsl(r,g,b);
+      const dist = colorDistance(r,g,b,bg);
+      const edge = Math.abs(lumAt(x-1,y) - lumAt(x+1,y)) + Math.abs(lumAt(x,y-1) - lumAt(x,y+1));
+      const active = dist > 34 || (hsl.s > 18 && Math.abs(hsl.l - rgbToHsl(bg.r,bg.g,bg.b).l) > 10) || edge > 42;
+      mask[y*w+x] = active ? 1 : 0;
+    }
+  }
+  mask = smoothMask(mask, w, h, 4);
+  mask = smoothMask(mask, w, h, 5);
+  const comps = connectedComponents(mask,w,h).slice(0,6);
+  return comps.map(componentToShape).filter(Boolean);
+}
+function svgWrap(viewW, viewH, body){
+  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${viewW} ${viewH}" fill="none">${body}</svg>`;
+}
+function makeAbstractDecorSvg(img, crop){
+  const shapes = extractShapesFromCrop(img, crop).sort((a,b)=>b.area-a.area).slice(0, crop.limit || 4);
+  const viewW = crop.outW || 220, viewH = crop.outH || 120;
+  const sx = viewW / (crop.sampleW || 92), sy = viewH / (crop.sampleH || 92);
+  if(!shapes.length) return { svg: svgWrap(viewW, viewH, `<path d="M 8 ${viewH*0.65} C ${viewW*0.22} ${viewH*0.4}, ${viewW*0.34} ${viewH*0.9}, ${viewW*0.54} ${viewH*0.56} S ${viewW*0.84} ${viewH*0.1}, ${viewW-8} ${viewH*0.36}" style="stroke:var(--motif-soft);stroke-width:2.2;opacity:.48;stroke-linecap:round"/>`), w:viewW, h:viewH };
+  let body = '';
+  shapes.forEach((shape, idx) => {
+    const outline = scalePts(shape.outline, sx, sy);
+    const stem = scalePts(shape.stem, sx, sy);
+    const fillOpacity = crop.role === 'header' ? [0.30,0.18,0.14,0.10][idx] || 0.08 : crop.role === 'side' ? [0.22,0.14,0.10,0.08][idx] || 0.07 : [0.24,0.18,0.12,0.10][idx] || 0.08;
+    const strokeOpacity = crop.role === 'side' ? [0.55,0.38,0.28,0.22][idx] || 0.18 : [0.42,0.28,0.22,0.18][idx] || 0.16;
+    body += `<path d="${pointsToSmoothPath(outline, true)}" style="fill:var(--motif-soft);opacity:${fillOpacity}"/>`;
+    if(shape.aspect > 1.55 || crop.role === 'side') body += `<path d="${pointsToSmoothPath(stem, false)}" style="stroke:var(--page-accent);stroke-width:${crop.role==='side' ? 1.8 : 1.4};stroke-linecap:round;stroke-linejoin:round;opacity:${strokeOpacity}"/>`;
+  });
+  if(crop.role !== 'side') body += `<path d="M ${viewW*0.06} ${viewH*0.72} C ${viewW*0.26} ${viewH*0.42}, ${viewW*0.50} ${viewH*0.92}, ${viewW*0.84} ${viewH*0.46}" style="stroke:var(--page-accent);stroke-width:1.35;opacity:.18;stroke-linecap:round;fill:none"/>`;
+  return { svg: svgWrap(viewW, viewH, body), w:viewW, h:viewH };
+}
+function buildImageDerivedDecorAssets(img){
+  if(!img || !img.src) return null;
+  const assets = {
+    header: makeAbstractDecorSvg(img, {x:0.46, y:0.02, w:0.42, h:0.30, sampleW:92, sampleH:62, outW:220, outH:96, limit:4, role:'header'}),
+    side: makeAbstractDecorSvg(img, {x:0.02, y:0.08, w:0.28, h:0.82, sampleW:64, sampleH:132, outW:112, outH:360, limit:5, role:'side'}),
+    footer: makeAbstractDecorSvg(img, {x:0.54, y:0.58, w:0.38, h:0.30, sampleW:84, sampleH:60, outW:170, outH:100, limit:4, role:'footer'}),
+    accent: makeAbstractDecorSvg(img, {x:0.18, y:0.58, w:0.28, h:0.22, sampleW:58, sampleH:44, outW:128, outH:76, limit:3, role:'accent'})
+  };
+  return { assets, signature: img.src.slice(0,80), pngs:null };
+}
 function decorLayoutForPage(page){
-  const base = {
+  return {
     daily:[
-      {asset:'north',x:360,y:12,w:190,h:92,o:.82,r:'18px',cls:'soft'},
-      {asset:'westTall',x:0,y:96,w:118,h:360,o:.62,r:'0 38px 38px 0',cls:'band'},
-      {asset:'se',x:374,y:584,w:194,h:120,o:.66,r:'32px',cls:'soft'},
-      {asset:'center',x:186,y:628,w:116,h:56,o:.46,r:'18px',cls:'soft'}
+      {asset:'side',x:-8,y:108,w:108,h:350,o:.64,cls:'side'},
+      {asset:'header',x:350,y:26,w:178,h:78,o:.86,cls:'header'},
+      {asset:'footer',x:378,y:618,w:168,h:92,o:.62,cls:'footer'},
+      {asset:'accent',x:146,y:646,w:112,h:62,o:.34,cls:'accent'}
     ],
     weekly:[
-      {asset:'north',x:340,y:16,w:188,h:90,o:.82,r:'18px',cls:'soft'},
-      {asset:'westTall',x:0,y:110,w:106,h:318,o:.58,r:'0 36px 36px 0',cls:'band'},
-      {asset:'south',x:318,y:614,w:214,h:104,o:.58,r:'26px',cls:'soft'}
+      {asset:'side',x:-10,y:118,w:98,h:292,o:.56,cls:'side'},
+      {asset:'header',x:340,y:30,w:176,h:76,o:.84,cls:'header'},
+      {asset:'footer',x:366,y:626,w:160,h:86,o:.56,cls:'footer'}
     ],
     monthly:[
-      {asset:'north',x:350,y:12,w:202,h:94,o:.84,r:'18px',cls:'soft'},
-      {asset:'eastTall',x:474,y:120,w:102,h:262,o:.54,r:'28px 0 0 28px',cls:'band'},
-      {asset:'south',x:48,y:654,w:224,h:90,o:.46,r:'24px',cls:'soft'}
+      {asset:'header',x:346,y:28,w:180,h:76,o:.84,cls:'header'},
+      {asset:'side',x:474,y:130,w:90,h:246,o:.44,cls:'side right'},
+      {asset:'accent',x:42,y:662,w:110,h:58,o:.28,cls:'accent'}
     ],
     todo:[
-      {asset:'north',x:356,y:10,w:196,h:94,o:.84,r:'18px',cls:'soft'},
-      {asset:'westTall',x:0,y:106,w:112,h:364,o:.60,r:'0 38px 38px 0',cls:'band'},
-      {asset:'se',x:386,y:574,w:174,h:124,o:.64,r:'24px',cls:'soft'}
+      {asset:'side',x:-10,y:114,w:104,h:348,o:.60,cls:'side'},
+      {asset:'header',x:350,y:28,w:176,h:76,o:.84,cls:'header'},
+      {asset:'footer',x:384,y:598,w:160,h:98,o:.60,cls:'footer'}
     ],
     notes:[
-      {asset:'north',x:360,y:14,w:194,h:92,o:.82,r:'18px',cls:'soft'},
-      {asset:'eastTall',x:470,y:128,w:106,h:312,o:.56,r:'28px 0 0 28px',cls:'band'},
-      {asset:'south',x:46,y:650,w:206,h:84,o:.44,r:'22px',cls:'soft'}
+      {asset:'header',x:352,y:30,w:176,h:74,o:.82,cls:'header'},
+      {asset:'side',x:476,y:146,w:88,h:270,o:.44,cls:'side right'},
+      {asset:'accent',x:44,y:650,w:110,h:58,o:.30,cls:'accent'}
     ],
     habit:[
-      {asset:'north',x:352,y:16,w:194,h:92,o:.82,r:'18px',cls:'soft'},
-      {asset:'westTall',x:0,y:116,w:114,h:330,o:.58,r:'0 38px 38px 0',cls:'band'},
-      {asset:'se',x:388,y:582,w:178,h:118,o:.62,r:'24px',cls:'soft'}
+      {asset:'side',x:-8,y:124,w:102,h:310,o:.54,cls:'side'},
+      {asset:'header',x:346,y:30,w:176,h:74,o:.82,cls:'header'},
+      {asset:'footer',x:374,y:620,w:162,h:90,o:.56,cls:'footer'}
     ]
-  };
-  return base[page] || base.daily;
-}
-
-function renderDecor(){
-  const page = currentPage;
-  const layout = decorLayoutForPage(page);
-  const img = el('imagePreview');
-  const useDerived = imageDerivedDecor && imageDerivedDecor.assets && img && img.src;
-  const structuralPanels = {
-    daily:[{x:0,y:0,w:612,h:108,c:'--header-wash',r:'0 0 36px 36px'},{x:366,y:92,w:166,h:54,c:'rgba(255,255,255,.52)',r:'28px'}],
-    weekly:[{x:0,y:0,w:612,h:104,c:'--header-wash',r:'0 0 34px 34px'}],
-    monthly:[{x:0,y:0,w:612,h:104,c:'--header-wash',r:'0 0 34px 34px'}],
-    todo:[{x:0,y:0,w:612,h:108,c:'--header-wash',r:'0 0 36px 36px'}],
-    notes:[{x:0,y:0,w:612,h:108,c:'--header-wash',r:'0 0 36px 36px'}],
-    habit:[{x:0,y:0,w:612,h:104,c:'--header-wash',r:'0 0 34px 34px'},{x:362,y:94,w:170,h:56,c:'rgba(255,255,255,.52)',r:'28px'}]
   }[page] || [];
-
-  const fragmentsHtml = useDerived ? layout.map(item => {
-    const src = imageDerivedDecor.assets[item.asset];
-    if(!src) return '';
-    return `<div class="decor-fragment ${item.cls||''}" style="left:${item.x}px; top:${item.y}px; width:${item.w}px; height:${item.h}px; opacity:${item.o}; border-radius:${item.r}; background-image:url('${src}');"></div>`;
-  }).join('') : '';
-
-  const fallback = !useDerived ? `<div class="decor-plate" style="left:0;top:0;width:612px;height:108px;border-radius:0 0 34px 34px;background:var(--header-wash)"></div><div class="decor-plate" style="left:0;top:104px;width:110px;height:340px;border-radius:0 34px 34px 0;background:var(--shape-c);opacity:.45"></div><div class="decor-plate" style="left:380px;top:600px;width:184px;height:112px;border-radius:26px;background:var(--shape-b);opacity:.55"></div>` : '';
-
-  plannerDecor.innerHTML = `
-    ${structuralPanels.map(p => `<div class="decor-plate" style="left:${p.x}px; top:${p.y}px; width:${p.w}px; height:${p.h}px; border-radius:${p.r}; background:${p.c.startsWith('rgba') ? p.c : `var(${p.c})`};"></div>`).join('')}
-    ${fragmentsHtml}
-    ${fallback}
-  `;
+}
+function renderDecor(){
+  const layout = decorLayoutForPage(currentPage);
+  const assets = imageDerivedDecor?.assets || null;
+  const headerWash = `<div class="decor-wash"></div>`;
+  const fallback = !assets ? `<div class="decor-stroke" style="left:-6px;top:118px;width:104px;height:320px;opacity:.32"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 104 320" fill="none"><path d="M24 14 C 54 58, 18 96, 54 138 S 28 228, 54 290" style="stroke:var(--motif-soft);stroke-width:16;opacity:.24;stroke-linecap:round"/><path d="M40 18 C 68 52, 34 102, 68 146 S 40 230, 68 286" style="stroke:var(--page-accent);stroke-width:1.6;opacity:.26;stroke-linecap:round;fill:none"/></svg></div>` : '';
+  plannerDecor.innerHTML = headerWash + (assets ? layout.map(item => {
+    const asset = assets[item.asset];
+    if(!asset) return '';
+    return `<div class="decor-vector ${item.cls || ''}" style="left:${item.x}px;top:${item.y}px;width:${item.w}px;height:${item.h}px;opacity:${item.o}">${asset.svg}</div>`;
+  }).join('') : fallback);
 }
 
 function renderDaily(container) {
@@ -570,7 +673,7 @@ function renderCurrentPage() {
   if(currentPage === 'notes') renderNotes(plannerContent);
   if(currentPage === 'habit') renderHabit(plannerContent);
   document.querySelectorAll('#pageTabs button').forEach(btn => btn.classList.toggle('active', btn.dataset.page === currentPage));
-  el('motifLabel').textContent = imageDerivedDecor ? 'Image-derived' : (currentPackName().charAt(0).toUpperCase() + currentPackName().slice(1));
+  el('motifLabel').textContent = imageDerivedDecor ? 'Abstracted' : (currentPackName().charAt(0).toUpperCase() + currentPackName().slice(1));
   updateLayoutLabel();
   renderDecor();
   applyStyleControls(false);
@@ -656,6 +759,7 @@ function applyStyleControls(save=true) {
   planner.style.setProperty('--header-wash', vars.headerWash);
   planner.style.setProperty('--page-shadow-color', vars.pageShadow);
   planner.className = 'planner-page ' + el('stylePreset').value;
+  if(imageDerivedDecor) imageDerivedDecor.pngs = null;
   if(save) autosave();
 }
 
@@ -701,7 +805,7 @@ el('extractPaletteBtn').addEventListener('click', () => {
   ['bgColor','accentColor','textColor','borderColor','softFillColor'].forEach((id, idx) => el(id).value = extractedPalette[idx]);
   renderCurrentPage();
   applyStyleControls();
-  showToast('Palette and image-derived design elements updated.');
+  showToast('Palette and abstracted design elements updated.');
 });
 
 document.querySelectorAll('#pageTabs button').forEach(btn => {
@@ -835,41 +939,62 @@ function drawPdfMotif(pdf,type,x,y,scale=1,alpha=1){
     for(let i=0;i<4;i++) pdf.ellipse(x-3*scale+i*2*scale,y+1.8*scale,1*scale,0.8*scale,'S');
   }
 }
+
+function resolveSvgThemeMarkup(svgMarkup){
+  const style = getComputedStyle(planner);
+  return svgMarkup
+    .replaceAll('var(--motif-soft)', style.getPropertyValue('--motif-soft').trim() || el('accentColor').value)
+    .replaceAll('var(--page-accent)', style.getPropertyValue('--page-accent').trim() || el('accentColor').value)
+    .replaceAll('var(--header-wash)', style.getPropertyValue('--header-wash').trim() || el('softFillColor').value)
+    .replaceAll('var(--shape-c)', style.getPropertyValue('--shape-c').trim() || el('borderColor').value);
+}
+async function svgMarkupToPngData(svgMarkup, width, height){
+  const svgResolved = resolveSvgThemeMarkup(svgMarkup);
+  const encoded = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svgResolved);
+  const img = await new Promise((resolve, reject) => {
+    const tag = new Image();
+    tag.onload = () => resolve(tag);
+    tag.onerror = reject;
+    tag.src = encoded;
+  });
+  const canvas = document.createElement('canvas');
+  canvas.width = width; canvas.height = height;
+  const ctx = canvas.getContext('2d');
+  ctx.drawImage(img, 0, 0, width, height);
+  return canvas.toDataURL('image/png');
+}
+async function ensureDecorPngAssets(){
+  if(!imageDerivedDecor?.assets) return;
+  imageDerivedDecor.pngs = imageDerivedDecor.pngs || {};
+  const entries = Object.entries(imageDerivedDecor.assets);
+  for(const [key, asset] of entries){
+    if(imageDerivedDecor.pngs[key]) continue;
+    imageDerivedDecor.pngs[key] = await svgMarkupToPngData(asset.svg, asset.w, asset.h);
+  }
+}
 function drawPdfBackgroundMotifs(pdf,cfg,pageKey){
   const headerWash = blendHex(cfg.accent, cfg.bg, 0.88);
-  const shapeC = blendHex((extractedPaletteRich[2] || cfg.border), cfg.bg, 0.56);
-  const shapeB = blendHex(cfg.fill, cfg.bg, 0.34);
-  const panels = {
-    daily:[[0,0,cfg.w,24,headerWash,4],[cfg.w-62,26,52,18,'#ffffff',8]],
-    weekly:[[0,0,cfg.w,22,headerWash,4]],
-    monthly:[[0,0,cfg.w,22,headerWash,4]],
-    todo:[[0,0,cfg.w,24,headerWash,4]],
-    notes:[[0,0,cfg.w,24,headerWash,4]],
-    habit:[[0,0,cfg.w,22,headerWash,4],[cfg.w-60,26,50,18,'#ffffff',8]]
-  }[pageKey] || [];
-  panels.forEach(([x,y,w,h,c,r])=>{ setPdfColor(pdf,'setFillColor',c); pdf.roundedRect(x,y,w,h,r,r,'F'); });
-  if(imageDerivedDecor && imageDerivedDecor.assets){
-    const layout = decorLayoutForPage(pageKey);
-    const pageW = pageDimensionsPx().w;
-    const pageH = pageDimensionsPx().h;
-    layout.forEach(item => {
-      const src = imageDerivedDecor.assets[item.asset];
-      if(!src) return;
+  setPdfColor(pdf,'setFillColor', headerWash);
+  pdf.roundedRect(0,0,cfg.w,24,4,4,'F');
+  if(imageDerivedDecor?.pngs){
+    const pageW = pageDimensionsPx().w, pageH = pageDimensionsPx().h;
+    decorLayoutForPage(pageKey).forEach(item => {
+      const png = imageDerivedDecor.pngs[item.asset];
+      if(!png) return;
       const x = (item.x / pageW) * cfg.w;
       const y = (item.y / pageH) * cfg.h;
       const w = (item.w / pageW) * cfg.w;
       const h = (item.h / pageH) * cfg.h;
-      try { pdf.addImage(src, 'PNG', x, y, w, h, undefined, 'FAST'); } catch(e) {}
+      try { pdf.addImage(png, 'PNG', x, y, w, h, undefined, 'FAST'); } catch(e) {}
     });
   } else {
-    setPdfColor(pdf,'setFillColor',shapeC); pdf.roundedRect(0,32,18,cfg.h*0.42,0,8,'F');
-    setPdfColor(pdf,'setFillColor',shapeB); pdf.roundedRect(cfg.w-54,cfg.h-44,42,22,8,8,'F');
+    const support = extractedPaletteRich[2] || cfg.border;
+    setPdfColor(pdf,'setFillColor', blendHex(support, cfg.bg, 0.72));
+    pdf.roundedRect(0,36,16,cfg.h*0.42,0,8,'F');
   }
 }
-
 function drawPdfHeader(pdf, title, eyebrow, right, cfg, pageKey) {
-  const {w,h,m,accent,text,border,pack,titleFont,labelFont} = cfg;
-  pdf.__accentColor = accent;
+  const {w,h,m,accent,text,border,titleFont,labelFont} = cfg;
   drawPdfBackgroundMotifs(pdf,cfg,pageKey);
   const top = h*.07;
   setPdfColor(pdf,'setTextColor',accent);
@@ -890,14 +1015,9 @@ function drawPdfHeader(pdf, title, eyebrow, right, cfg, pageKey) {
   setPdfColor(pdf,'setDrawColor',accent);
   pdf.setLineWidth(.5);
   pdf.line(m,top+h*.058,w-m,top+h*.058);
-  pdf.__accentColor = blendHex(text, accent, 0.28);
-  drawPdfMotif(pdf,pack[0],w/2-12,top+h*.071,.6);
-  pdf.__accentColor = blendHex(accent, cfg.bg, 0.42);
-  drawPdfMotif(pdf,pack[1],w/2,top+h*.071,.56);
-  drawPdfMotif(pdf,pack[2],w/2+12,top+h*.071,.56);
-  pdf.__accentColor = accent;
   return top+h*.086;
 }
+
 function drawPdfFooter(pdf,cfg){
   setPdfColor(pdf,'setTextColor',cfg.accent);
   pdf.setFont(cfg.labelFont.family, 'normal');
@@ -1111,25 +1231,26 @@ el('exportPdfBtn').addEventListener('click', async () => {
   let previewWindow = null;
   if(isiPadOrIPhone) {
     previewWindow = window.open('', '_blank');
-    if(previewWindow) previewWindow.document.write("<!doctype html><title>Preparing PDF...</title><meta name='viewport' content='width=device-width,initial-scale=1'><body style='font-family:system-ui;padding:30px'>Preparing your refined 6-page planner collection…</body>");
+    if(previewWindow) previewWindow.document.write("<!doctype html><title>Preparing PDF...</title><meta name='viewport' content='width=device-width,initial-scale=1'><body style='font-family:system-ui;padding:30px'>Preparing your premium planner collection…</body>");
   }
   try {
     if(!window.jspdf || !window.jspdf.jsPDF) throw new Error('jsPDF did not load.');
-    showToast('Building premium 6-page PDF...');
+    showToast('Building Phase 6.2 PDF...');
+    await ensureDecorPngAssets();
     const {jsPDF} = window.jspdf;
     const cfg = pdfCfg();
     const pdf = new jsPDF({orientation:'portrait', unit:'mm', format:[cfg.w,cfg.h], compress:true});
     pageTypes.forEach((type, index) => { if(index>0) pdf.addPage([cfg.w,cfg.h], 'portrait'); drawVectorPage(pdf, type, cfg); });
     const blob = pdf.output('blob');
     const url = URL.createObjectURL(blob);
-    const fileName = `planner-collection-phase6-1-${el('pageSize').value}.pdf`;
+    const fileName = `planner-collection-phase6-2-${el('pageSize').value}.pdf`;
     if(isiPadOrIPhone) {
       if(previewWindow) previewWindow.location.href = url;
       showToast('PDF opened. Use Share → Save to Files.');
     } else {
       const a = document.createElement('a');
       a.href = url; a.download = fileName; document.body.appendChild(a); a.click(); a.remove();
-      showToast('Premium 6-page PDF exported.');
+      showToast('Phase 6.2 PDF exported.');
     }
     setTimeout(() => URL.revokeObjectURL(url), 120000);
   } catch(err) {
@@ -1141,7 +1262,7 @@ el('exportPdfBtn').addEventListener('click', async () => {
 
 function projectData(){
   return {
-    version:8,
+    version:9,
     currentPage,
     activeSections,
     extractedPalette,

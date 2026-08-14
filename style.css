@@ -5,6 +5,14 @@
   --ink: #222;
   --muted: #6c6c6c;
   --line: #dedbd4;
+  --shape-a:#f0dccf;
+  --shape-b:#f6e7df;
+  --shape-c:#ead9ce;
+  --shape-d:#f8efe8;
+  --motif-strong:#92715f;
+  --motif-soft:#d0a489;
+  --header-wash:#f6eee7;
+  --page-shadow-color:#b3a9a1;
 }
 * { box-sizing: border-box; }
 body {
@@ -153,7 +161,7 @@ button { cursor: pointer; border: 0; border-radius: 10px; padding: 10px 14px; }
   background:var(--page-bg);
   color:var(--page-text);
   padding:42px;
-  box-shadow:0 18px 55px rgba(0,0,0,.12);
+  box-shadow:0 20px 58px rgba(0,0,0,.10), 0 6px 20px rgba(0,0,0,.05);
   position: relative;
   overflow:hidden;
 }
@@ -163,16 +171,20 @@ button { cursor: pointer; border: 0; border-radius: 10px; padding: 10px 14px; }
   z-index:0;
   pointer-events:none;
 }
+.decor-band { position:absolute; border-radius:0 0 42px 42px; opacity:1; }
+.decor-blob { position:absolute; filter:none; }
+.decor-arch { position:absolute; border:1px solid; border-radius:999px 999px 0 0; border-bottom:0; opacity:.92; }
+.decor-quote-panel { position:absolute; padding:8px 14px; border-radius:999px; background:rgba(255,255,255,.55); color:var(--motif-strong); font-size:11px; letter-spacing:.08em; text-transform:lowercase; font-family:var(--font-label); }
 .decor-motif {
   position:absolute;
   opacity:.16;
   color:var(--page-accent);
 }
-.decor-motif svg {
-  width:100%;
-  height:100%;
-  display:block;
-}
+.decor-motif svg { width:100%; height:100%; display:block; }
+.decor-motif.hero { transform:rotate(-2deg); }
+.decor-motif.medium { transform:rotate(4deg); }
+.decor-motif.soft { transform:rotate(-5deg); }
+.decor-motif.tiny { transform:rotate(5deg); opacity:.28; }
 .planner-content,
 .planner-footer {
   position:relative;
@@ -183,10 +195,12 @@ button { cursor: pointer; border: 0; border-radius: 10px; padding: 10px 14px; }
   justify-content:space-between;
   align-items:flex-end;
   gap:18px;
-  padding-bottom:14px;
+  padding:14px 16px 14px 0;
   margin-bottom:var(--page-gap);
   border-bottom:2px solid var(--page-accent);
+  position:relative;
 }
+.planner-header::before { content:""; position:absolute; inset:-18px -16px auto -18px; height:96px; background:linear-gradient(180deg,var(--header-wash), rgba(255,255,255,0)); border-radius:0 0 28px 28px; z-index:-1; }
 .eyebrow {
   margin:0 0 7px;
   color:var(--page-accent);
@@ -196,29 +210,10 @@ button { cursor: pointer; border: 0; border-radius: 10px; padding: 10px 14px; }
   font-size:10px;
   text-transform:uppercase;
 }
-.planner-header h2 {
-  margin:0;
-  font-family:var(--font-title);
-  font-size:36px;
-  font-weight:500;
-  line-height:1;
-}
-.date-box {
-  min-width:132px;
-  font-family:var(--font-label);
-  font-size:10px;
-  text-transform:uppercase;
-  letter-spacing:.12em;
-  color: var(--page-accent);
-}
-.date-line { border-bottom:1px solid var(--page-border); margin-top:12px; }
-.ornament-strip {
-  display:flex;
-  justify-content:center;
-  gap:12px;
-  min-height:22px;
-  margin:-4px 0 12px;
-}
+.planner-header h2 { margin:0; font-family:var(--font-title); font-size:38px; font-weight:500; line-height:1; letter-spacing:-.01em; }
+.date-box { min-width:144px; font-family:var(--font-label); font-size:10px; text-transform:uppercase; letter-spacing:.12em; color: var(--page-accent); background:rgba(255,255,255,.42); padding:10px 12px 8px; border-radius:18px 18px 4px 4px; }
+.date-line { border-bottom:1px solid var(--page-border); margin-top:10px; }
+.ornament-strip { display:flex; justify-content:center; gap:12px; min-height:22px; margin:-2px 0 14px; }
 .strip-icon {
   width:24px;
   height:18px;
@@ -266,12 +261,7 @@ button { cursor: pointer; border: 0; border-radius: 10px; padding: 10px 14px; }
 .month-cell {
   background:var(--page-fill);
 }
-.planner-card {
-  border:1px solid var(--page-border);
-  border-radius:var(--page-radius);
-  padding:14px;
-  min-height:135px;
-}
+.planner-card { border:1px solid var(--page-border); border-radius:var(--page-radius); padding:14px; min-height:135px; box-shadow:0 10px 24px rgba(255,255,255,.24) inset, 0 6px 14px rgba(63,48,37,.05); backdrop-filter:blur(0.5px); }
 .planner-card.tall { min-height:210px; }
 .planner-card.wide { grid-column:1 / -1; }
 .planner-card.sidebar-main { grid-row:span 2; min-height:438px; }
@@ -305,12 +295,7 @@ button { cursor: pointer; border: 0; border-radius: 10px; padding: 10px 14px; }
   grid-template-columns:1fr 1fr;
   gap:12px;
 }
-.week-day {
-  min-height:145px;
-  border:1px solid var(--page-border);
-  border-radius:var(--page-radius);
-  padding:12px;
-}
+.week-day { min-height:145px; border:1px solid var(--page-border); border-radius:var(--page-radius); padding:12px; box-shadow:0 8px 18px rgba(63,48,37,.05); }
 .week-day:nth-child(7) { grid-column:1 / -1; }
 .month-weekdays {
   display:grid;
@@ -344,11 +329,7 @@ button { cursor: pointer; border: 0; border-radius: 10px; padding: 10px 14px; }
   grid-template-columns:1.25fr .75fr;
   gap:var(--page-gap);
 }
-.todo-main, .todo-side, .notes-sheet, .habit-sheet {
-  border:1px solid var(--page-border);
-  border-radius:var(--page-radius);
-  padding:16px;
-}
+.todo-main, .todo-side, .notes-sheet, .habit-sheet { border:1px solid var(--page-border); border-radius:var(--page-radius); padding:16px; box-shadow:0 8px 18px rgba(63,48,37,.05); }
 .todo-main { min-height:555px; }
 .todo-side { min-height:555px; display:grid; gap:14px; align-content:start; }
 .side-card {
@@ -398,15 +379,25 @@ button { cursor: pointer; border: 0; border-radius: 10px; padding: 10px 14px; }
 .planner-page.botanical .todo-main,
 .planner-page.botanical .todo-side,
 .planner-page.botanical .notes-sheet,
-.planner-page.botanical .habit-sheet {
-  border-radius:24px 10px 24px 10px;
-}
+.planner-page.botanical .habit-sheet { border-radius:24px 10px 24px 10px; }
+.planner-page.feminine .planner-card,
+.planner-page.feminine .week-day,
+.planner-page.feminine .todo-main,
+.planner-page.feminine .todo-side,
+.planner-page.feminine .notes-sheet,
+.planner-page.feminine .habit-sheet { border-radius:22px; box-shadow:0 0 0 1px rgba(255,255,255,.58) inset, 0 8px 18px rgba(63,48,37,.05); }
 .planner-page.grid .planner-card,
 .planner-page.grid .week-day,
 .planner-page.grid .todo-main,
 .planner-page.grid .todo-side,
 .planner-page.grid .notes-sheet,
 .planner-page.grid .habit-sheet { border-radius:3px; }
+.planner-page.clean .planner-card,
+.planner-page.clean .week-day,
+.planner-page.clean .todo-main,
+.planner-page.clean .todo-side,
+.planner-page.clean .notes-sheet,
+.planner-page.clean .habit-sheet { box-shadow:0 4px 12px rgba(63,48,37,.04); }
 .control-label { margin-bottom:12px; }
 .control-label input[type="color"] {
   width:100%;

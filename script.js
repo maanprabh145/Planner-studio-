@@ -143,27 +143,29 @@ function detectPackName(raw){
   return 'botanical';
 }
 function buildSoftPalette(raw){
-  const colors = raw.length ? raw : ['#f6e8d8','#f0c88e','#e9a06a','#7e7166','#f8f1e5'];
+  const colors = raw.length ? raw : ["#f8ead7","#efc77f","#e79c72","#8b7469","#fdf8f2"];
   const hsls = colors.map(c => ({hex:c, ...hexToHsl(c)}));
-
-  const brightLights = hsls.filter(c => c.l > 70);
-  const warmLights = hsls.filter(c => c.l > 55 && c.s > 12 && (((c.h>=8 && c.h<=70) || c.h>=330)));
-  const yellowPeach = hsls.filter(c => c.s > 18 && c.l > 45 && c.l < 82 && ((c.h>=18 && c.h<=62) || c.h>=330 || c.h<=18));
-  const greenish = hsls.filter(c => c.s > 10 && c.h >= 80 && c.h <= 165);
-  const bluish = hsls.filter(c => c.s > 10 && c.h > 165 && c.h <= 245);
-  const darkest = [...hsls].sort((a,b)=>a.l-b.l)[0] || {hex:'#58463e', h:20, s:12, l:28};
-  const lightest = [...hsls].sort((a,b)=>b.l-a.l)[0] || {hex:'#fbf7f0', h:32, s:20, l:92};
-
-  const hero = pickBest(yellowPeach, c => c.s + c.l/10) || pickBest(warmLights, c => c.s + c.l/10) || pickBest(greenish, c => c.s) || pickBest(bluish, c => c.s) || lightest;
-  const supporting = pickBest(yellowPeach.filter(c => c.hex !== hero.hex), c => c.s + c.l/10) || pickBest(greenish, c => c.s + c.l/15) || pickBest(bluish, c => c.s + c.l/15) || lightest;
-  const bgHue = hero ? hero.h : lightest.h;
-  const background = blendHex(hslToHex(bgHue, clamp((hero?.s || 20) * 0.28, 8, 24), 95), '#fffaf5', 0.35);
-  const accent = softenHex(hero.hex, {targetLight: clamp(hero.l, 58, 68), targetSat: clamp(hero.s, 26, 62), creamBlend:0.06});
-  const text = hslToHex(darkest.h, Math.min(darkest.s, 22), clamp(darkest.l, 24, 30));
-  const border = blendHex(accent, background, 0.55);
-  const fillBase = supporting ? softenHex(supporting.hex, {targetLight:88, targetSat:Math.min(supporting.s, 28), creamBlend:0.5}) : '#fffaf5';
-  const softFill = blendHex(fillBase, background, 0.35);
-  return [background, accent, text, border, softFill];
+  const lightest = [...hsls].sort((a,b)=>b.l-a.l)[0] || {hex:'#fbf7f0', h:34, s:18, l:92};
+  const darkest = [...hsls].sort((a,b)=>a.l-b.l)[0] || {hex:'#5c4b43', h:20, s:12, l:28};
+  const warm = hsls.filter(c => (((c.h>=8 && c.h<=74) || c.h>=330) && c.s > 15 && c.l > 35));
+  const orange = warm.filter(c => c.h>=16 && c.h<=42 && c.s>18);
+  const yellow = warm.filter(c => c.h>42 && c.h<=72);
+  const pink = hsls.filter(c => ((c.h>=315 || c.h<=18) && c.s > 14 && c.l > 40));
+  const green = hsls.filter(c => (c.h>=72 && c.h<=165 && c.s > 10 && c.l > 35));
+  const blue = hsls.filter(c => (c.h>165 && c.h<=245 && c.s > 10 && c.l > 35));
+  const heroPool = [...orange, ...pink, ...yellow, ...green, ...blue, ...warm, ...hsls];
+  const hero = pickBest(heroPool, c => (c.s * 1.2) + (100 - Math.abs(c.l - 62)) + (((c.h>=18 && c.h<=58) || c.h>=330) ? 12 : 0)) || lightest;
+  const supportPool = hsls.filter(c => c.hex !== hero.hex);
+  const support = pickBest(supportPool, c => (c.s * 0.9) + (100 - Math.abs(c.l - 70)) + (Math.abs(c.h - hero.h) > 8 ? 8 : 0)) || lightest;
+  const bgHue = hero.h;
+  const background = blendHex(hslToHex(bgHue, clamp((hero.s || 20) * 0.22, 9, 26), 95), '#fffdf9', 0.22);
+  const accent = softenHex(hero.hex, { targetLight: clamp(hero.l, 56, 66), targetSat: clamp(hero.s * 0.92, 28, 58), creamBlend: 0.04 });
+  const supportTint = softenHex(support.hex, { targetLight: clamp(support.l + 10, 70, 84), targetSat: clamp(support.s * 0.72, 16, 34), creamBlend: 0.1 });
+  const textSeed = softenHex(darkest.hex, { targetLight: clamp(darkest.l, 22, 30), targetSat: clamp(darkest.s * 0.55, 10, 22), creamBlend: 0 });
+  const text = luminance(textSeed) > 0.42 ? hslToHex(hero.h, 10, 28) : textSeed;
+  const border = blendHex(accent, background, 0.58);
+  const fill = blendHex(supportTint, background, 0.6);
+  return [background, accent, text, border, fill];
 }
 
 function packFromMode(mode){
@@ -233,52 +235,107 @@ function makeChecks(count=5) {
 function renderDecor(){
   const pack = currentPack();
   const page = currentPage;
-  const schemes = {
-    daily: [
-      {t:pack[0], x:16, y:18, w:72, h:36, o:.14},
-      {t:pack[1], x:490, y:20, w:66, h:34, o:.13},
-      {t:pack[2], x:34, y:674, w:76, h:38, o:.12},
-      {t:pack[0], x:484, y:650, w:72, h:36, o:.11},
-      {t:pack[1], x:520, y:302, w:54, h:28, o:.08},
-      {t:pack[2], x:22, y:322, w:56, h:26, o:.08}
-    ],
-    weekly: [
-      {t:pack[1], x:24, y:18, w:70, h:34, o:.14},
-      {t:pack[2], x:488, y:18, w:70, h:34, o:.14},
-      {t:pack[0], x:282, y:120, w:50, h:24, o:.09},
-      {t:pack[1], x:36, y:652, w:64, h:28, o:.11},
-      {t:pack[0], x:488, y:658, w:66, h:28, o:.11}
-    ],
-    monthly: [
-      {t:pack[2], x:24, y:18, w:72, h:32, o:.14},
-      {t:pack[0], x:490, y:18, w:68, h:30, o:.14},
-      {t:pack[1], x:274, y:98, w:58, h:26, o:.09},
-      {t:pack[2], x:36, y:680, w:68, h:28, o:.1},
-      {t:pack[0], x:490, y:680, w:68, h:28, o:.1}
-    ],
-    todo: [
-      {t:pack[0], x:18, y:18, w:72, h:34, o:.14},
-      {t:pack[1], x:488, y:18, w:68, h:34, o:.14},
-      {t:pack[2], x:490, y:430, w:62, h:30, o:.1},
-      {t:pack[0], x:34, y:668, w:70, h:30, o:.1}
-    ],
-    notes: [
-      {t:pack[1], x:20, y:18, w:74, h:34, o:.14},
-      {t:pack[2], x:490, y:18, w:68, h:30, o:.14},
-      {t:pack[0], x:32, y:682, w:70, h:30, o:.1},
-      {t:pack[1], x:490, y:682, w:68, h:28, o:.1}
-    ],
-    habit: [
-      {t:pack[2], x:20, y:18, w:72, h:34, o:.14},
-      {t:pack[0], x:490, y:18, w:70, h:34, o:.14},
-      {t:pack[1], x:268, y:106, w:54, h:24, o:.1},
-      {t:pack[2], x:36, y:686, w:68, h:28, o:.09},
-      {t:pack[0], x:488, y:686, w:68, h:28, o:.09}
-    ]
-  };
-  plannerDecor.innerHTML = (schemes[page] || []).map(item => `
-    <div class="decor-motif" style="left:${item.x}px; top:${item.y}px; width:${item.w}px; height:${item.h}px; opacity:${item.o};">${motifSvg(item.t)}</div>
-  `).join('');
+  const style = el('stylePreset').value;
+  const variant = dailyLayoutIndex % 3;
+  const layout = {
+    daily: {
+      blobs:[
+        {x:-40,y:120,w:160,h:420,r:'55% 45% 58% 42% / 30% 54% 46% 70%',v:'--shape-d'},
+        {x:372,y:-10,w:270,h:188,r:'38% 62% 55% 45% / 48% 36% 64% 52%',v:'--shape-a'},
+        {x:350,y:548,w:220,h:160,r:'58% 42% 46% 54% / 48% 55% 45% 52%',v:'--shape-b'},
+        {x:70,y:610,w:210,h:110,r:'68% 32% 62% 38% / 46% 54% 46% 54%',v:'--shape-c'}
+      ],
+      arcs:[{x:28,y:90,w:160,h:250,b:'--shape-c'},{x:418,y:196,w:126,h:190,b:'--shape-d'}],
+      bands:[{x:0,y:0,w:612,h:116,c:'--header-wash'},{x:0,y:734,w:612,h:58,c:'--shape-d'}],
+      motifs:[
+        {t:pack[0],x:430,y:44,w:136,h:58,o:.92,c:'--motif-strong',cls:'hero'},
+        {t:pack[1],x:78,y:132,w:106,h:46,o:.45,c:'--motif-soft',cls:'soft'},
+        {t:pack[2],x:455,y:585,w:92,h:38,o:.46,c:'--motif-soft',cls:'soft'},
+        {t:pack[1],x:164,y:650,w:76,h:32,o:.55,c:'--motif-strong',cls:'medium'},
+        {t:pack[2],x:34,y:668,w:54,h:24,o:.4,c:'--motif-soft',cls:'tiny'},
+        {t:pack[0],x:520,y:310,w:56,h:22,o:.34,c:'--motif-soft',cls:'tiny'}
+      ]
+    },
+    weekly: {
+      blobs:[
+        {x:-24,y:108,w:134,h:290,r:'55% 45% 58% 42% / 34% 50% 50% 66%',v:'--shape-d'},
+        {x:356,y:-10,w:256,h:170,r:'36% 64% 57% 43% / 42% 34% 66% 58%',v:'--shape-a'},
+        {x:392,y:560,w:188,h:140,r:'58% 42% 50% 50% / 54% 46% 54% 46%',v:'--shape-b'}
+      ],
+      arcs:[{x:445,y:208,w:118,h:246,b:'--shape-c'},{x:48,y:556,w:110,h:170,b:'--shape-c'}],
+      bands:[{x:0,y:0,w:612,h:106,c:'--header-wash'}],
+      motifs:[
+        {t:pack[1],x:402,y:42,w:132,h:54,o:.88,c:'--motif-strong',cls:'hero'},
+        {t:pack[2],x:36,y:128,w:90,h:38,o:.44,c:'--motif-soft',cls:'soft'},
+        {t:pack[0],x:468,y:608,w:82,h:34,o:.48,c:'--motif-soft',cls:'soft'}
+      ]
+    },
+    monthly: {
+      blobs:[
+        {x:-18,y:116,w:148,h:270,r:'58% 42% 55% 45% / 35% 52% 48% 65%',v:'--shape-d'},
+        {x:355,y:-18,w:260,h:180,r:'36% 64% 57% 43% / 40% 34% 66% 60%',v:'--shape-a'},
+        {x:365,y:610,w:220,h:120,r:'56% 44% 54% 46% / 52% 48% 52% 48%',v:'--shape-b'}
+      ],
+      arcs:[{x:440,y:116,w:120,h:144,b:'--shape-c'},{x:54,y:636,w:96,h:90,b:'--shape-c'}],
+      bands:[{x:0,y:0,w:612,h:102,c:'--header-wash'}],
+      motifs:[
+        {t:pack[2],x:392,y:44,w:136,h:54,o:.86,c:'--motif-strong',cls:'hero'},
+        {t:pack[0],x:36,y:136,w:90,h:34,o:.42,c:'--motif-soft',cls:'soft'},
+        {t:pack[1],x:474,y:620,w:78,h:32,o:.44,c:'--motif-soft',cls:'soft'}
+      ]
+    },
+    todo: {
+      blobs:[
+        {x:-28,y:106,w:154,h:370,r:'60% 40% 58% 42% / 34% 52% 48% 66%',v:'--shape-d'},
+        {x:370,y:-12,w:252,h:174,r:'36% 64% 54% 46% / 42% 36% 64% 58%',v:'--shape-a'},
+        {x:430,y:516,w:158,h:196,r:'54% 46% 60% 40% / 54% 46% 54% 46%',v:'--shape-b'}
+      ],
+      arcs:[{x:464,y:176,w:94,h:208,b:'--shape-c'}],
+      bands:[{x:0,y:0,w:612,h:108,c:'--header-wash'}],
+      motifs:[
+        {t:pack[0],x:410,y:42,w:134,h:54,o:.88,c:'--motif-strong',cls:'hero'},
+        {t:pack[1],x:48,y:140,w:88,h:36,o:.42,c:'--motif-soft',cls:'soft'},
+        {t:pack[2],x:472,y:566,w:76,h:32,o:.46,c:'--motif-soft',cls:'soft'}
+      ]
+    },
+    notes: {
+      blobs:[
+        {x:-24,y:112,w:150,h:430,r:'58% 42% 58% 42% / 32% 54% 46% 68%',v:'--shape-d'},
+        {x:360,y:-10,w:250,h:176,r:'36% 64% 57% 43% / 42% 36% 64% 58%',v:'--shape-a'},
+        {x:330,y:590,w:250,h:136,r:'60% 40% 54% 46% / 54% 46% 54% 46%',v:'--shape-b'}
+      ],
+      arcs:[{x:472,y:176,w:88,h:206,b:'--shape-c'}],
+      bands:[{x:0,y:0,w:612,h:106,c:'--header-wash'}],
+      motifs:[
+        {t:pack[1],x:394,y:42,w:132,h:54,o:.86,c:'--motif-strong',cls:'hero'},
+        {t:pack[2],x:52,y:146,w:88,h:36,o:.42,c:'--motif-soft',cls:'soft'},
+        {t:pack[0],x:450,y:610,w:82,h:32,o:.44,c:'--motif-soft',cls:'soft'}
+      ]
+    },
+    habit: {
+      blobs:[
+        {x:-24,y:114,w:144,h:300,r:'58% 42% 56% 44% / 34% 52% 48% 66%',v:'--shape-d'},
+        {x:360,y:-8,w:250,h:168,r:'36% 64% 56% 44% / 42% 34% 66% 58%',v:'--shape-a'},
+        {x:360,y:604,w:220,h:128,r:'58% 42% 54% 46% / 54% 46% 54% 46%',v:'--shape-b'}
+      ],
+      arcs:[{x:448,y:172,w:108,h:160,b:'--shape-c'}],
+      bands:[{x:0,y:0,w:612,h:104,c:'--header-wash'}],
+      motifs:[
+        {t:pack[2],x:396,y:42,w:136,h:54,o:.86,c:'--motif-strong',cls:'hero'},
+        {t:pack[1],x:52,y:142,w:88,h:34,o:.4,c:'--motif-soft',cls:'soft'},
+        {t:pack[0],x:452,y:620,w:80,h:32,o:.42,c:'--motif-soft',cls:'soft'}
+      ]
+    }
+  }[page];
+
+  const extraHero = style === 'feminine' ? `<div class="decor-quote-panel" style="left:366px; top:92px;">${variant===0 ? 'plan with ease' : variant===1 ? 'gentle focus' : 'soft structure'}</div>` : '';
+  plannerDecor.innerHTML = `
+    ${(layout.bands || []).map(b => `<div class="decor-band" style="left:${b.x}px; top:${b.y}px; width:${b.w}px; height:${b.h}px; background:var(${b.c});"></div>`).join('')}
+    ${(layout.blobs || []).map(b => `<div class="decor-blob" style="left:${b.x}px; top:${b.y}px; width:${b.w}px; height:${b.h}px; background:var(${b.v}); border-radius:${b.r};"></div>`).join('')}
+    ${(layout.arcs || []).map(a => `<div class="decor-arch" style="left:${a.x}px; top:${a.y}px; width:${a.w}px; height:${a.h}px; border-color:var(${a.b});"></div>`).join('')}
+    ${extraHero}
+    ${(layout.motifs || []).map(item => `<div class="decor-motif ${item.cls || ''}" style="left:${item.x}px; top:${item.y}px; width:${item.w}px; height:${item.h}px; opacity:${item.o}; color:var(${item.c || '--motif-soft'});">${motifSvg(item.t)}</div>`).join('')}
+  `;
 }
 
 function renderDaily(container) {
@@ -496,7 +553,27 @@ function renderPalette() {
   });
 }
 
+
+function themeVarsFromPalette() {
+  const bg = el('bgColor').value;
+  const accent = el('accentColor').value;
+  const text = el('textColor').value;
+  const border = el('borderColor').value;
+  const fill = el('softFillColor').value;
+  return {
+    shapeA: blendHex(accent, bg, 0.72),
+    shapeB: blendHex(fill, bg, 0.28),
+    shapeC: blendHex(border, bg, 0.34),
+    shapeD: blendHex(accent, bg, 0.84),
+    motifStrong: blendHex(text, accent, 0.28),
+    motifSoft: blendHex(accent, bg, 0.46),
+    headerWash: blendHex(accent, bg, 0.88),
+    pageShadow: blendHex(text, '#ffffff', 0.86)
+  };
+}
+
 function applyStyleControls(save=true) {
+  const vars = themeVarsFromPalette();
   planner.style.setProperty('--page-bg', el('bgColor').value);
   planner.style.setProperty('--page-accent', el('accentColor').value);
   planner.style.setProperty('--page-text', el('textColor').value);
@@ -507,6 +584,14 @@ function applyStyleControls(save=true) {
   planner.style.setProperty('--font-title', el('titleFont').value);
   planner.style.setProperty('--font-label', el('labelFont').value);
   planner.style.setProperty('--font-body', el('bodyFont').value);
+  planner.style.setProperty('--shape-a', vars.shapeA);
+  planner.style.setProperty('--shape-b', vars.shapeB);
+  planner.style.setProperty('--shape-c', vars.shapeC);
+  planner.style.setProperty('--shape-d', vars.shapeD);
+  planner.style.setProperty('--motif-strong', vars.motifStrong);
+  planner.style.setProperty('--motif-soft', vars.motifSoft);
+  planner.style.setProperty('--header-wash', vars.headerWash);
+  planner.style.setProperty('--page-shadow-color', vars.pageShadow);
   planner.className = 'planner-page ' + el('stylePreset').value;
   if(save) autosave();
 }
@@ -688,16 +773,31 @@ function drawPdfMotif(pdf,type,x,y,scale=1,alpha=1){
 }
 function drawPdfBackgroundMotifs(pdf,cfg,pageKey){
   const p = cfg.pack;
+  const shapeA = blendHex(cfg.accent, cfg.bg, 0.72);
+  const shapeB = blendHex(cfg.fill, cfg.bg, 0.28);
+  const shapeC = blendHex(cfg.border, cfg.bg, 0.34);
+  const headerWash = blendHex(cfg.accent, cfg.bg, 0.88);
+  const lightAccent = blendHex(cfg.accent, cfg.bg, 0.46);
+  const strongMotif = blendHex(cfg.text, cfg.accent, 0.28);
+  const pageShapes = {
+    daily: { ellipses:[[24,64,36,70,shapeC],[cfg.w-34,26,56,22,shapeA],[cfg.w-30,cfg.h-32,44,18,shapeB],[58,cfg.h-22,42,12,shapeC]], rects:[[0,0,cfg.w,24,headerWash],[cfg.w-36,54,22,52,shapeC]] },
+    weekly: { ellipses:[[20,58,30,48,shapeC],[cfg.w-34,24,54,20,shapeA],[cfg.w-26,cfg.h-28,36,16,shapeB]], rects:[[0,0,cfg.w,22,headerWash],[cfg.w-34,52,20,60,shapeC]] },
+    monthly:{ ellipses:[[22,60,32,44,shapeC],[cfg.w-34,24,56,22,shapeA],[cfg.w-28,cfg.h-24,42,14,shapeB]], rects:[[0,0,cfg.w,22,headerWash]] },
+    todo:   { ellipses:[[22,72,34,62,shapeC],[cfg.w-30,24,54,22,shapeA],[cfg.w-20,cfg.h-52,24,38,shapeB]], rects:[[0,0,cfg.w,22,headerWash],[cfg.w-30,52,18,70,shapeC]] },
+    notes:  { ellipses:[[22,76,34,82,shapeC],[cfg.w-32,24,54,22,shapeA],[cfg.w-34,cfg.h-28,44,16,shapeB]], rects:[[0,0,cfg.w,22,headerWash],[cfg.w-28,52,18,68,shapeC]] },
+    habit:  { ellipses:[[22,60,32,48,shapeC],[cfg.w-32,24,54,20,shapeA],[cfg.w-30,cfg.h-26,44,16,shapeB]], rects:[[0,0,cfg.w,22,headerWash],[cfg.w-32,54,20,46,shapeC]] }
+  }[pageKey] || {ellipses:[], rects:[]};
+  pageShapes.rects.forEach(([x,y,w,h,c])=>{ setPdfColor(pdf,'setFillColor',c); pdf.roundedRect(x,y,w,h,4,4,'F'); });
+  pageShapes.ellipses.forEach(([x,y,rx,ry,c])=>{ setPdfColor(pdf,'setFillColor',c); pdf.ellipse(x,y,rx,ry,'F'); });
   const items = {
-    daily:[ [p[0],cfg.m+8,16,.95],[p[1],cfg.w-cfg.m-8,16,.9],[p[2],cfg.m+10,cfg.h-26,.85],[p[0],cfg.w-cfg.m-10,cfg.h-28,.85],[p[1],cfg.w-cfg.m-8,cfg.h*.44,.75],[p[2],cfg.m+8,cfg.h*.45,.75] ],
-    weekly:[ [p[1],cfg.m+8,16,.95],[p[2],cfg.w-cfg.m-8,16,.95],[p[0],cfg.w/2,cfg.h*.17,.7],[p[1],cfg.m+8,cfg.h-24,.82],[p[0],cfg.w-cfg.m-8,cfg.h-24,.82] ],
-    monthly:[ [p[2],cfg.m+8,16,.95],[p[0],cfg.w-cfg.m-8,16,.95],[p[1],cfg.w/2,cfg.h*.16,.7],[p[2],cfg.m+8,cfg.h-24,.78],[p[0],cfg.w-cfg.m-8,cfg.h-24,.78] ],
-    todo:[ [p[0],cfg.m+8,16,.95],[p[1],cfg.w-cfg.m-8,16,.95],[p[2],cfg.w-cfg.m-8,cfg.h*.55,.75],[p[0],cfg.m+10,cfg.h-26,.78] ],
-    notes:[ [p[1],cfg.m+8,16,.95],[p[2],cfg.w-cfg.m-8,16,.95],[p[0],cfg.m+10,cfg.h-24,.78],[p[1],cfg.w-cfg.m-8,cfg.h-24,.78] ],
-    habit:[ [p[2],cfg.m+8,16,.95],[p[0],cfg.w-cfg.m-8,16,.95],[p[1],cfg.w/2,cfg.h*.17,.7],[p[2],cfg.m+10,cfg.h-22,.72],[p[0],cfg.w-cfg.m-8,cfg.h-22,.72] ]
+    daily:[ [p[0],cfg.w-36,17,1.2,strongMotif], [p[1],28,38,.95,lightAccent], [p[2],cfg.w-24,cfg.h-20,.82,lightAccent], [p[1],cfg.w*.33,cfg.h-18,.78,strongMotif] ],
+    weekly:[ [p[1],cfg.w-36,17,1.2,strongMotif], [p[2],28,38,.92,lightAccent], [p[0],cfg.w-22,cfg.h-22,.8,lightAccent] ],
+    monthly:[ [p[2],cfg.w-36,17,1.2,strongMotif], [p[0],28,40,.92,lightAccent], [p[1],cfg.w-22,cfg.h-20,.8,lightAccent] ],
+    todo:[ [p[0],cfg.w-36,17,1.2,strongMotif], [p[1],28,40,.92,lightAccent], [p[2],cfg.w-22,cfg.h-38,.8,lightAccent] ],
+    notes:[ [p[1],cfg.w-36,17,1.2,strongMotif], [p[2],28,40,.92,lightAccent], [p[0],cfg.w-24,cfg.h-20,.8,lightAccent] ],
+    habit:[ [p[2],cfg.w-36,17,1.2,strongMotif], [p[1],28,40,.92,lightAccent], [p[0],cfg.w-24,cfg.h-20,.8,lightAccent] ]
   }[pageKey] || [];
-  pdf.__accentColor = blendHex(cfg.accent, cfg.bg, .45);
-  items.forEach(([type,x,y,scale])=> drawPdfMotif(pdf,type,x,y,scale));
+  items.forEach(([type,x,y,scale,color])=>{ pdf.__accentColor = color; drawPdfMotif(pdf,type,x,y,scale); });
   pdf.__accentColor = cfg.accent;
 }
 function drawPdfHeader(pdf, title, eyebrow, right, cfg, pageKey) {
@@ -723,9 +823,12 @@ function drawPdfHeader(pdf, title, eyebrow, right, cfg, pageKey) {
   setPdfColor(pdf,'setDrawColor',accent);
   pdf.setLineWidth(.5);
   pdf.line(m,top+h*.058,w-m,top+h*.058);
-  drawPdfMotif(pdf,pack[0],w/2-10,top+h*.071,.52);
-  drawPdfMotif(pdf,pack[1],w/2,top+h*.071,.52);
-  drawPdfMotif(pdf,pack[2],w/2+10,top+h*.071,.52);
+  pdf.__accentColor = blendHex(text, accent, 0.28);
+  drawPdfMotif(pdf,pack[0],w/2-12,top+h*.071,.6);
+  pdf.__accentColor = blendHex(accent, cfg.bg, 0.42);
+  drawPdfMotif(pdf,pack[1],w/2,top+h*.071,.56);
+  drawPdfMotif(pdf,pack[2],w/2+12,top+h*.071,.56);
+  pdf.__accentColor = accent;
   return top+h*.086;
 }
 function drawPdfFooter(pdf,cfg){
@@ -946,21 +1049,21 @@ el('exportPdfBtn').addEventListener('click', async () => {
   }
   try {
     if(!window.jspdf || !window.jspdf.jsPDF) throw new Error('jsPDF did not load.');
-    showToast('Building refined 6-page PDF...');
+    showToast('Building premium 6-page PDF...');
     const {jsPDF} = window.jspdf;
     const cfg = pdfCfg();
     const pdf = new jsPDF({orientation:'portrait', unit:'mm', format:[cfg.w,cfg.h], compress:true});
     pageTypes.forEach((type, index) => { if(index>0) pdf.addPage([cfg.w,cfg.h], 'portrait'); drawVectorPage(pdf, type, cfg); });
     const blob = pdf.output('blob');
     const url = URL.createObjectURL(blob);
-    const fileName = `planner-collection-phase5-${el('pageSize').value}.pdf`;
+    const fileName = `planner-collection-phase6-${el('pageSize').value}.pdf`;
     if(isiPadOrIPhone) {
       if(previewWindow) previewWindow.location.href = url;
       showToast('PDF opened. Use Share → Save to Files.');
     } else {
       const a = document.createElement('a');
       a.href = url; a.download = fileName; document.body.appendChild(a); a.click(); a.remove();
-      showToast('Refined 6-page PDF exported.');
+      showToast('Premium 6-page PDF exported.');
     }
     setTimeout(() => URL.revokeObjectURL(url), 120000);
   } catch(err) {
@@ -972,7 +1075,7 @@ el('exportPdfBtn').addEventListener('click', async () => {
 
 function projectData(){
   return {
-    version:6,
+    version:7,
     currentPage,
     activeSections,
     extractedPalette,

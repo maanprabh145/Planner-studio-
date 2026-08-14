@@ -6,7 +6,7 @@
   <title>Planner Studio</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Allura&family=Bodoni+Moda:wght@400;600&family=Caveat:wght@400;700&family=Cormorant+Garamond:wght@400;500;600&family=DM+Serif+Display:ital@0;1&family=Fraunces:opsz,wght@9..144,400;600&family=Great+Vibes&family=Kalam:wght@300;400;700&family=Lora:wght@400;600&family=Montserrat:wght@400;600;700&family=Parisienne&family=Patrick+Hand&family=Playfair+Display:wght@400;600&family=Poppins:wght@400;500;600&family=Prata&family=Raleway:wght@400;500;600&family=Spectral:wght@400;600&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Allura&family=Bodoni+Moda:wght@400;600&family=Caveat:wght@400;700&family=Cinzel:wght@400;600&family=Cormorant+Garamond:wght@400;500;600&family=Cormorant+Infant:wght@400;600&family=DM+Serif+Display:ital@0;1&family=Fraunces:opsz,wght@9..144,400;600&family=Great+Vibes&family=Kalam:wght@300;400;700&family=Libre+Baskerville:wght@400;700&family=Lora:wght@400;600&family=Marcellus&family=Montserrat:wght@400;600;700&family=Parisienne&family=Patrick+Hand&family=Petit+Formal+Script&family=Playfair+Display:wght@400;600&family=Poppins:wght@400;500;600&family=Prata&family=Raleway:wght@400;500;600&family=Spectral:wght@400;600&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="style.css" />
   <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
@@ -15,7 +15,7 @@
   <header class="topbar">
     <div>
       <h1>Planner Studio</h1>
-      <p>Create original coordinated printable planner collections.</p>
+      <p>Create original coordinated printable planner collections with stronger art direction.</p>
     </div>
     <div class="top-actions">
       <button id="saveProjectBtn" class="ghost">Save Project</button>
@@ -45,7 +45,7 @@
           <button id="extractPaletteBtn" class="small-btn">Extract</button>
         </div>
         <div id="palette" class="palette"></div>
-        <p class="microcopy">The palette now prioritizes soft warm lights, peach, pink, yellow, sage, and other gentle tones before falling back to neutrals.</p>
+        <p class="microcopy">The palette now aims for gentler contrast, softer lights, and richer warm accents so the pages feel premium rather than neon or muddy.</p>
       </section>
 
       <section>
@@ -71,7 +71,8 @@
           <select id="stylePreset">
             <option value="clean">Clean Minimal</option>
             <option value="editorial">Soft Editorial</option>
-            <option value="botanical">Botanical</option>
+            <option value="feminine">Modern Feminine</option>
+            <option value="botanical">Botanical Luxe</option>
             <option value="grid">Modern Grid</option>
           </select>
         </label>
@@ -145,9 +146,14 @@
             <option value="Spectral, serif">Spectral</option>
             <option value="Prata, serif">Prata</option>
             <option value="'Bodoni Moda', serif">Bodoni Moda</option>
+            <option value="'Libre Baskerville', serif">Libre Baskerville</option>
+            <option value="Marcellus, serif">Marcellus</option>
+            <option value="Cinzel, serif">Cinzel</option>
+            <option value="'Cormorant Infant', serif">Cormorant Infant</option>
             <option value="'Great Vibes', cursive">Great Vibes</option>
             <option value="Parisienne, cursive">Parisienne</option>
             <option value="Allura, cursive">Allura</option>
+            <option value="'Petit Formal Script', cursive">Petit Formal Script</option>
             <option value="Caveat, cursive">Caveat</option>
           </select>
         </label>
@@ -160,6 +166,8 @@
             <option value="'Cormorant Garamond', serif">Cormorant Garamond</option>
             <option value="Lora, serif">Lora</option>
             <option value="Spectral, serif">Spectral</option>
+            <option value="'Libre Baskerville', serif">Libre Baskerville</option>
+            <option value="Marcellus, serif">Marcellus</option>
             <option value="Kalam, cursive">Kalam</option>
             <option value="'Patrick Hand', cursive">Patrick Hand</option>
           </select>
@@ -172,6 +180,8 @@
             <option value="Raleway, sans-serif">Raleway</option>
             <option value="Lora, serif">Lora</option>
             <option value="Spectral, serif">Spectral</option>
+            <option value="'Libre Baskerville', serif">Libre Baskerville</option>
+            <option value="Marcellus, serif">Marcellus</option>
             <option value="'Patrick Hand', cursive">Patrick Hand</option>
             <option value="Kalam, cursive">Kalam</option>
           </select>
@@ -187,8 +197,8 @@
       </section>
 
       <section class="collection-card">
-        <strong>6-page collection</strong>
-        <p>Daily, Weekly, Monthly, To-Do, Notes and Habit Tracker share one coordinated design system.</p>
+        <strong>Phase 6 collection</strong>
+        <p>Daily, Weekly, Monthly, To-Do, Notes and Habit Tracker share one coordinated design system with stronger premium art direction.</p>
         <p><strong>Motif pack:</strong> <span id="motifLabel">Auto</span></p>
         <p><strong>Daily layout:</strong> <span id="layoutLabel">Balanced</span></p>
       </section>

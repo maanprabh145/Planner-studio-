@@ -20,7 +20,9 @@ const dailyLayouts = [
 let currentPage = "daily";
 let activeSections = ["top3","schedule","todo","notes","meals","gratitude"];
 let extractedPalette = ["#fbf7f0", "#d79c66", "#58463e", "#e4cdbd", "#fffaf5"];
+let extractedPaletteRich = ["#fbf7f0", "#d79c66", "#8fa278", "#cda98d", "#58463e"];
 let rawDetectedPack = "botanical";
+let imageDerivedDecor = null;
 let dailyLayoutIndex = 0;
 
 const el = id => document.getElementById(id);
@@ -102,29 +104,49 @@ function softenHex(hex,{maxSat=56,minLight=34,maxLight=84,targetLight=null,targe
   const out = hslToHex(hsl.h, s, l);
   return creamBlend ? blendHex(out, '#fbf7f0', creamBlend) : out;
 }
-function averagePaletteFromImage(img, count=12) {
+function averagePaletteFromImage(img, count=18) {
   const canvas=document.createElement('canvas');
   const ctx=canvas.getContext('2d',{willReadFrequently:true});
-  canvas.width=220; canvas.height=220;
-  ctx.drawImage(img,0,0,220,220);
-  const data=ctx.getImageData(0,0,220,220).data;
+  canvas.width=280; canvas.height=280;
+  ctx.drawImage(img,0,0,280,280);
+  const data=ctx.getImageData(0,0,280,280).data;
   const buckets=new Map();
-  for(let i=0;i<data.length;i+=8){
-    if(data[i+3] < 180) continue;
-    const r=data[i], g=data[i+1], b=data[i+2];
-    const hsl=rgbToHsl(r,g,b);
-    const rq=Math.round(r/24)*24, gq=Math.round(g/24)*24, bq=Math.round(b/24)*24;
-    const key=[Math.min(rq,255),Math.min(gq,255),Math.min(bq,255)].join(',');
-    const weight = 1 + (hsl.s/100)*0.9 + (Math.abs(hsl.l-70)<18 ? 0.6 : 0) + (((hsl.h>=10 && hsl.h<=70)||hsl.h>=320) ? 0.9 : 0);
-    buckets.set(key, (buckets.get(key) || 0) + weight);
+  for(let y=0;y<280;y+=2){
+    for(let x=0;x<280;x+=2){
+      const i = (y*280 + x)*4;
+      if(data[i+3] < 170) continue;
+      const r=data[i], g=data[i+1], b=data[i+2];
+      const hsl=rgbToHsl(r,g,b);
+      const rq=Math.round(r/20)*20, gq=Math.round(g/20)*20, bq=Math.round(b/20)*20;
+      const key=[Math.min(rq,255),Math.min(gq,255),Math.min(bq,255)].join(',');
+      const colorWeight = 1 + (hsl.s/100)*1.2 + (hsl.l > 18 && hsl.l < 88 ? 0.35 : 0) + (((hsl.h>=8&&hsl.h<=74) || hsl.h>=320) ? 0.3 : 0);
+      buckets.set(key, (buckets.get(key) || 0) + colorWeight);
+    }
   }
-  return [...buckets.entries()]
-    .sort((a,b)=>b[1]-a[1])
-    .slice(0,count)
-    .map(([k])=>{
-      const [r,g,b]=k.split(',').map(Number);
-      return rgbToHex(r,g,b);
-    });
+  const entries = [...buckets.entries()].map(([k,weight])=>{
+    const [r,g,b]=k.split(',').map(Number);
+    const hex = rgbToHex(r,g,b);
+    return {hex, weight, ...hexToHsl(hex)};
+  }).sort((a,b)=>b.weight-a.weight);
+
+  const selected=[];
+  const pushUnique = (item, hueDistance=16) => {
+    if(!item) return;
+    if(selected.some(s => s.hex === item.hex)) return;
+    if(selected.some(s => Math.abs(s.h - item.h) < hueDistance && Math.abs(s.l - item.l) < 10 && Math.abs(s.s - item.s) < 14)) return;
+    selected.push(item);
+  };
+
+  const lightNeutral = entries.filter(c => c.l > 74 && c.s < 28).sort((a,b)=>b.weight-a.weight)[0];
+  const heroWarm = entries.filter(c => (((c.h>=12&&c.h<=58) || c.h>=330) && c.s > 18 && c.l > 28 && c.l < 82)).sort((a,b)=>b.weight-a.weight)[0];
+  const heroGreen = entries.filter(c => (c.h>=72 && c.h<=165 && c.s > 14 && c.l > 28 && c.l < 82)).sort((a,b)=>b.weight-a.weight)[0];
+  const heroBlue = entries.filter(c => (c.h>165 && c.h<=245 && c.s > 14 && c.l > 28 && c.l < 82)).sort((a,b)=>b.weight-a.weight)[0];
+  const pink = entries.filter(c => ((c.h>=300 || c.h<=16) && c.s > 14 && c.l > 32 && c.l < 82)).sort((a,b)=>b.weight-a.weight)[0];
+  const darkAnchor = entries.filter(c => c.l < 42).sort((a,b)=>b.weight-a.weight)[0];
+
+  [lightNeutral, heroWarm, heroGreen, heroBlue, pink, darkAnchor].forEach(x => pushUnique(x, 18));
+  entries.forEach(item => { if(selected.length < count) pushUnique(item, 14); });
+  return selected.slice(0, count).map(x => x.hex);
 }
 function pickBest(list, scorer){
   if(!list.length) return null;
@@ -143,28 +165,33 @@ function detectPackName(raw){
   return 'botanical';
 }
 function buildSoftPalette(raw){
-  const colors = raw.length ? raw : ["#f8ead7","#efc77f","#e79c72","#8b7469","#fdf8f2"];
+  const colors = raw.length ? raw : ["#f8ead7","#efc77f","#e79c72","#8fa278","#5b4942","#fdf8f2"];
   const hsls = colors.map(c => ({hex:c, ...hexToHsl(c)}));
   const lightest = [...hsls].sort((a,b)=>b.l-a.l)[0] || {hex:'#fbf7f0', h:34, s:18, l:92};
   const darkest = [...hsls].sort((a,b)=>a.l-b.l)[0] || {hex:'#5c4b43', h:20, s:12, l:28};
   const warm = hsls.filter(c => (((c.h>=8 && c.h<=74) || c.h>=330) && c.s > 15 && c.l > 35));
-  const orange = warm.filter(c => c.h>=16 && c.h<=42 && c.s>18);
-  const yellow = warm.filter(c => c.h>42 && c.h<=72);
-  const pink = hsls.filter(c => ((c.h>=315 || c.h<=18) && c.s > 14 && c.l > 40));
-  const green = hsls.filter(c => (c.h>=72 && c.h<=165 && c.s > 10 && c.l > 35));
-  const blue = hsls.filter(c => (c.h>165 && c.h<=245 && c.s > 10 && c.l > 35));
-  const heroPool = [...orange, ...pink, ...yellow, ...green, ...blue, ...warm, ...hsls];
-  const hero = pickBest(heroPool, c => (c.s * 1.2) + (100 - Math.abs(c.l - 62)) + (((c.h>=18 && c.h<=58) || c.h>=330) ? 12 : 0)) || lightest;
+  const green = hsls.filter(c => (c.h>=72 && c.h<=165 && c.s > 12 && c.l > 30));
+  const blue = hsls.filter(c => (c.h>165 && c.h<=245 && c.s > 12 && c.l > 30));
+  const pink = hsls.filter(c => ((c.h>=315 || c.h<=18) && c.s > 14 && c.l > 35));
+  const heroPool = [...warm, ...pink, ...green, ...blue, ...hsls];
+  const hero = pickBest(heroPool, c => (c.s * 1.25) + (100 - Math.abs(c.l - 60)) + (((c.h>=15 && c.h<=48) || c.h>=330) ? 10 : 0)) || lightest;
   const supportPool = hsls.filter(c => c.hex !== hero.hex);
-  const support = pickBest(supportPool, c => (c.s * 0.9) + (100 - Math.abs(c.l - 70)) + (Math.abs(c.h - hero.h) > 8 ? 8 : 0)) || lightest;
-  const bgHue = hero.h;
-  const background = blendHex(hslToHex(bgHue, clamp((hero.s || 20) * 0.22, 9, 26), 95), '#fffdf9', 0.22);
-  const accent = softenHex(hero.hex, { targetLight: clamp(hero.l, 56, 66), targetSat: clamp(hero.s * 0.92, 28, 58), creamBlend: 0.04 });
-  const supportTint = softenHex(support.hex, { targetLight: clamp(support.l + 10, 70, 84), targetSat: clamp(support.s * 0.72, 16, 34), creamBlend: 0.1 });
-  const textSeed = softenHex(darkest.hex, { targetLight: clamp(darkest.l, 22, 30), targetSat: clamp(darkest.s * 0.55, 10, 22), creamBlend: 0 });
-  const text = luminance(textSeed) > 0.42 ? hslToHex(hero.h, 10, 28) : textSeed;
-  const border = blendHex(accent, background, 0.58);
-  const fill = blendHex(supportTint, background, 0.6);
+  const support = pickBest(
+    [...green, ...blue, ...supportPool],
+    c => ((Math.abs(c.h - hero.h) > 24 ? 18 : 0) + c.s + (100 - Math.abs(c.l - 56)))
+  ) || lightest;
+  const palePool = hsls.filter(c => c.l > 62).sort((a,b)=>b.l-a.l);
+  const paleSupport = palePool.find(c => Math.abs(c.h - support.h) < 35) || palePool.find(c => Math.abs(c.h - hero.h) < 35) || lightest;
+
+  const backgroundHue = lightest.s < 18 ? lightest.h : hero.h;
+  const background = blendHex(hslToHex(backgroundHue, clamp((lightest.s || 18) * 0.22, 7, 18), 95), '#fffdf9', 0.28);
+  const accent = softenHex(hero.hex, { targetLight: clamp(hero.l, 48, 64), targetSat: clamp(hero.s * 0.94, 24, 60), creamBlend: 0.05 });
+  const supportTint = softenHex(support.hex, { targetLight: clamp(support.l, 44, 66), targetSat: clamp(support.s * 0.80, 18, 48), creamBlend: 0.08 });
+  const textSeed = softenHex(darkest.hex, { targetLight: clamp(darkest.l, 20, 30), targetSat: clamp(darkest.s * 0.60, 8, 24), creamBlend: 0 });
+  const text = luminance(textSeed) > 0.42 ? hslToHex(hero.h, 10, 26) : textSeed;
+  const border = blendHex(supportTint, background, 0.62);
+  const fill = blendHex(softenHex(paleSupport.hex, { targetLight: clamp(paleSupport.l + 8, 74, 88), targetSat: clamp(paleSupport.s * 0.60, 8, 26), creamBlend: 0.14 }), background, 0.48);
+  extractedPaletteRich = [background, accent, supportTint, fill, text, border];
   return [background, accent, text, border, fill];
 }
 
@@ -189,11 +216,10 @@ function motifSvg(type){
 function titleIconHtml(type){ return `<span class="title-icon">${motifSvg(type)}</span>`; }
 function stripIconHtml(type){ return `<span class="strip-icon">${motifSvg(type)}</span>`; }
 function titledBlockHeading(label, motifType){
-  return `<div class="title-with-icon">${titleIconHtml(motifType)}<h3 class="card-title">${label}</h3></div>`;
+  return `<h3 class="card-title no-icon">${label}</h3>`;
 }
 function ornamentStripHtml(){
-  const pack = currentPack();
-  return `<div class="ornament-strip">${stripIconHtml(pack[0])}${stripIconHtml(pack[1])}${stripIconHtml(pack[2])}</div>`;
+  return '';
 }
 function headerHtml(eyebrow, title, rightLabel){
   return `<div class="planner-header"><div><p class="eyebrow">${eyebrow}</p><h2>${title}</h2></div><div class="date-box"><span>${rightLabel}</span><div class="date-line"></div></div></div>${ornamentStripHtml()}`;
@@ -232,109 +258,145 @@ function makeChecks(count=5) {
   return d;
 }
 
-function renderDecor(){
-  const pack = currentPack();
-  const page = currentPage;
-  const style = el('stylePreset').value;
-  const variant = dailyLayoutIndex % 3;
-  const layout = {
-    daily: {
-      blobs:[
-        {x:-40,y:120,w:160,h:420,r:'55% 45% 58% 42% / 30% 54% 46% 70%',v:'--shape-d'},
-        {x:372,y:-10,w:270,h:188,r:'38% 62% 55% 45% / 48% 36% 64% 52%',v:'--shape-a'},
-        {x:350,y:548,w:220,h:160,r:'58% 42% 46% 54% / 48% 55% 45% 52%',v:'--shape-b'},
-        {x:70,y:610,w:210,h:110,r:'68% 32% 62% 38% / 46% 54% 46% 54%',v:'--shape-c'}
-      ],
-      arcs:[{x:28,y:90,w:160,h:250,b:'--shape-c'},{x:418,y:196,w:126,h:190,b:'--shape-d'}],
-      bands:[{x:0,y:0,w:612,h:116,c:'--header-wash'},{x:0,y:734,w:612,h:58,c:'--shape-d'}],
-      motifs:[
-        {t:pack[0],x:430,y:44,w:136,h:58,o:.92,c:'--motif-strong',cls:'hero'},
-        {t:pack[1],x:78,y:132,w:106,h:46,o:.45,c:'--motif-soft',cls:'soft'},
-        {t:pack[2],x:455,y:585,w:92,h:38,o:.46,c:'--motif-soft',cls:'soft'},
-        {t:pack[1],x:164,y:650,w:76,h:32,o:.55,c:'--motif-strong',cls:'medium'},
-        {t:pack[2],x:34,y:668,w:54,h:24,o:.4,c:'--motif-soft',cls:'tiny'},
-        {t:pack[0],x:520,y:310,w:56,h:22,o:.34,c:'--motif-soft',cls:'tiny'}
-      ]
-    },
-    weekly: {
-      blobs:[
-        {x:-24,y:108,w:134,h:290,r:'55% 45% 58% 42% / 34% 50% 50% 66%',v:'--shape-d'},
-        {x:356,y:-10,w:256,h:170,r:'36% 64% 57% 43% / 42% 34% 66% 58%',v:'--shape-a'},
-        {x:392,y:560,w:188,h:140,r:'58% 42% 50% 50% / 54% 46% 54% 46%',v:'--shape-b'}
-      ],
-      arcs:[{x:445,y:208,w:118,h:246,b:'--shape-c'},{x:48,y:556,w:110,h:170,b:'--shape-c'}],
-      bands:[{x:0,y:0,w:612,h:106,c:'--header-wash'}],
-      motifs:[
-        {t:pack[1],x:402,y:42,w:132,h:54,o:.88,c:'--motif-strong',cls:'hero'},
-        {t:pack[2],x:36,y:128,w:90,h:38,o:.44,c:'--motif-soft',cls:'soft'},
-        {t:pack[0],x:468,y:608,w:82,h:34,o:.48,c:'--motif-soft',cls:'soft'}
-      ]
-    },
-    monthly: {
-      blobs:[
-        {x:-18,y:116,w:148,h:270,r:'58% 42% 55% 45% / 35% 52% 48% 65%',v:'--shape-d'},
-        {x:355,y:-18,w:260,h:180,r:'36% 64% 57% 43% / 40% 34% 66% 60%',v:'--shape-a'},
-        {x:365,y:610,w:220,h:120,r:'56% 44% 54% 46% / 52% 48% 52% 48%',v:'--shape-b'}
-      ],
-      arcs:[{x:440,y:116,w:120,h:144,b:'--shape-c'},{x:54,y:636,w:96,h:90,b:'--shape-c'}],
-      bands:[{x:0,y:0,w:612,h:102,c:'--header-wash'}],
-      motifs:[
-        {t:pack[2],x:392,y:44,w:136,h:54,o:.86,c:'--motif-strong',cls:'hero'},
-        {t:pack[0],x:36,y:136,w:90,h:34,o:.42,c:'--motif-soft',cls:'soft'},
-        {t:pack[1],x:474,y:620,w:78,h:32,o:.44,c:'--motif-soft',cls:'soft'}
-      ]
-    },
-    todo: {
-      blobs:[
-        {x:-28,y:106,w:154,h:370,r:'60% 40% 58% 42% / 34% 52% 48% 66%',v:'--shape-d'},
-        {x:370,y:-12,w:252,h:174,r:'36% 64% 54% 46% / 42% 36% 64% 58%',v:'--shape-a'},
-        {x:430,y:516,w:158,h:196,r:'54% 46% 60% 40% / 54% 46% 54% 46%',v:'--shape-b'}
-      ],
-      arcs:[{x:464,y:176,w:94,h:208,b:'--shape-c'}],
-      bands:[{x:0,y:0,w:612,h:108,c:'--header-wash'}],
-      motifs:[
-        {t:pack[0],x:410,y:42,w:134,h:54,o:.88,c:'--motif-strong',cls:'hero'},
-        {t:pack[1],x:48,y:140,w:88,h:36,o:.42,c:'--motif-soft',cls:'soft'},
-        {t:pack[2],x:472,y:566,w:76,h:32,o:.46,c:'--motif-soft',cls:'soft'}
-      ]
-    },
-    notes: {
-      blobs:[
-        {x:-24,y:112,w:150,h:430,r:'58% 42% 58% 42% / 32% 54% 46% 68%',v:'--shape-d'},
-        {x:360,y:-10,w:250,h:176,r:'36% 64% 57% 43% / 42% 36% 64% 58%',v:'--shape-a'},
-        {x:330,y:590,w:250,h:136,r:'60% 40% 54% 46% / 54% 46% 54% 46%',v:'--shape-b'}
-      ],
-      arcs:[{x:472,y:176,w:88,h:206,b:'--shape-c'}],
-      bands:[{x:0,y:0,w:612,h:106,c:'--header-wash'}],
-      motifs:[
-        {t:pack[1],x:394,y:42,w:132,h:54,o:.86,c:'--motif-strong',cls:'hero'},
-        {t:pack[2],x:52,y:146,w:88,h:36,o:.42,c:'--motif-soft',cls:'soft'},
-        {t:pack[0],x:450,y:610,w:82,h:32,o:.44,c:'--motif-soft',cls:'soft'}
-      ]
-    },
-    habit: {
-      blobs:[
-        {x:-24,y:114,w:144,h:300,r:'58% 42% 56% 44% / 34% 52% 48% 66%',v:'--shape-d'},
-        {x:360,y:-8,w:250,h:168,r:'36% 64% 56% 44% / 42% 34% 66% 58%',v:'--shape-a'},
-        {x:360,y:604,w:220,h:128,r:'58% 42% 54% 46% / 54% 46% 54% 46%',v:'--shape-b'}
-      ],
-      arcs:[{x:448,y:172,w:108,h:160,b:'--shape-c'}],
-      bands:[{x:0,y:0,w:612,h:104,c:'--header-wash'}],
-      motifs:[
-        {t:pack[2],x:396,y:42,w:136,h:54,o:.86,c:'--motif-strong',cls:'hero'},
-        {t:pack[1],x:52,y:142,w:88,h:34,o:.4,c:'--motif-soft',cls:'soft'},
-        {t:pack[0],x:452,y:620,w:80,h:32,o:.42,c:'--motif-soft',cls:'soft'}
-      ]
-    }
-  }[page];
 
-  const extraHero = style === 'feminine' ? `<div class="decor-quote-panel" style="left:366px; top:92px;">${variant===0 ? 'plan with ease' : variant===1 ? 'gentle focus' : 'soft structure'}</div>` : '';
+function buildImageDerivedDecorAssets(img){
+  if(!img || !img.src) return null;
+  const fullW = img.naturalWidth || img.width || 1200;
+  const fullH = img.naturalHeight || img.height || 1200;
+  const crops = {
+    nw:{x:0.00,y:0.00,w:0.40,h:0.52,mode:'silhouette',outW:280,outH:220},
+    north:{x:0.22,y:0.00,w:0.52,h:0.38,mode:'wash',outW:320,outH:170},
+    eastTall:{x:0.66,y:0.00,w:0.24,h:0.90,mode:'band',outW:150,outH:440},
+    westTall:{x:0.00,y:0.10,w:0.26,h:0.84,mode:'band',outW:150,outH:460},
+    center:{x:0.25,y:0.18,w:0.42,h:0.48,mode:'silhouette',outW:280,outH:220},
+    south:{x:0.18,y:0.56,w:0.58,h:0.34,mode:'wash',outW:320,outH:170},
+    se:{x:0.56,y:0.48,w:0.38,h:0.44,mode:'silhouette',outW:260,outH:200}
+  };
+  const assetMap = {};
+  Object.entries(crops).forEach(([key,crop])=> assetMap[key] = makeDerivedFragment(img, crop));
+  return { assets: assetMap, signature: img.src.slice(0,80) };
+}
+
+function makeDerivedFragment(img, crop){
+  const canvas=document.createElement('canvas');
+  const ctx=canvas.getContext('2d',{willReadFrequently:true});
+  canvas.width = crop.outW || 280;
+  canvas.height = crop.outH || 220;
+  const sx=(img.naturalWidth||img.width) * crop.x;
+  const sy=(img.naturalHeight||img.height) * crop.y;
+  const sw=(img.naturalWidth||img.width) * crop.w;
+  const sh=(img.naturalHeight||img.height) * crop.h;
+  ctx.drawImage(img, sx, sy, sw, sh, 0, 0, canvas.width, canvas.height);
+  const id = ctx.getImageData(0,0,canvas.width,canvas.height);
+  const d = id.data;
+  let lumSamples=[];
+  for(let i=0;i<d.length;i+=16){
+    const hsl=rgbToHsl(d[i],d[i+1],d[i+2]);
+    lumSamples.push(hsl.l);
+  }
+  lumSamples.sort((a,b)=>b-a);
+  const localBg = lumSamples[Math.floor(lumSamples.length*0.18)] || 82;
+
+  const getL = (x,y)=>{
+    const xx = clamp(x,0,canvas.width-1), yy = clamp(y,0,canvas.height-1);
+    const idx = (Math.round(yy)*canvas.width + Math.round(xx))*4;
+    const hsl=rgbToHsl(d[idx],d[idx+1],d[idx+2]);
+    return hsl.l;
+  };
+
+  for(let y=0;y<canvas.height;y++){
+    for(let x=0;x<canvas.width;x++){
+      const i=(y*canvas.width+x)*4;
+      const r=d[i], g=d[i+1], b=d[i+2];
+      const hsl=rgbToHsl(r,g,b);
+      const lumDiff=Math.abs(hsl.l - localBg)/100;
+      const satScore=hsl.s/100;
+      const edge=((Math.abs(getL(x-1,y)-getL(x+1,y)) + Math.abs(getL(x,y-1)-getL(x,y+1)))/200);
+      let presence = satScore*0.55 + lumDiff*0.95;
+      if(crop.mode==='wash') presence = satScore*0.42 + lumDiff*0.65 + edge*0.4;
+      if(crop.mode==='band') presence = satScore*0.38 + lumDiff*0.52 + edge*0.9;
+      const threshold = crop.mode==='silhouette' ? 0.14 : crop.mode==='band' ? 0.18 : 0.16;
+      if(presence < threshold){
+        d[i+3] = 0;
+        continue;
+      }
+      let s = clamp(hsl.s * (crop.mode==='wash' ? 0.62 : 0.76), 14, 56);
+      let l = clamp(hsl.l + (crop.mode==='band' ? -4 : 0), 28, 82);
+      let softened = hexToRgb(blendHex(hslToHex(hsl.h, s, l), '#fbf7f0', crop.mode==='wash' ? 0.18 : 0.10));
+      d[i] = softened.r;
+      d[i+1] = softened.g;
+      d[i+2] = softened.b;
+      const alphaBase = crop.mode==='silhouette' ? 168 : crop.mode==='band' ? 148 : 112;
+      d[i+3] = clamp(Math.round(alphaBase * Math.min(1, (presence-threshold)/(0.55))), 0, 180);
+    }
+  }
+  ctx.putImageData(id,0,0);
+  return canvas.toDataURL('image/png');
+}
+
+function decorLayoutForPage(page){
+  const base = {
+    daily:[
+      {asset:'north',x:360,y:12,w:190,h:92,o:.82,r:'18px',cls:'soft'},
+      {asset:'westTall',x:0,y:96,w:118,h:360,o:.62,r:'0 38px 38px 0',cls:'band'},
+      {asset:'se',x:374,y:584,w:194,h:120,o:.66,r:'32px',cls:'soft'},
+      {asset:'center',x:186,y:628,w:116,h:56,o:.46,r:'18px',cls:'soft'}
+    ],
+    weekly:[
+      {asset:'north',x:340,y:16,w:188,h:90,o:.82,r:'18px',cls:'soft'},
+      {asset:'westTall',x:0,y:110,w:106,h:318,o:.58,r:'0 36px 36px 0',cls:'band'},
+      {asset:'south',x:318,y:614,w:214,h:104,o:.58,r:'26px',cls:'soft'}
+    ],
+    monthly:[
+      {asset:'north',x:350,y:12,w:202,h:94,o:.84,r:'18px',cls:'soft'},
+      {asset:'eastTall',x:474,y:120,w:102,h:262,o:.54,r:'28px 0 0 28px',cls:'band'},
+      {asset:'south',x:48,y:654,w:224,h:90,o:.46,r:'24px',cls:'soft'}
+    ],
+    todo:[
+      {asset:'north',x:356,y:10,w:196,h:94,o:.84,r:'18px',cls:'soft'},
+      {asset:'westTall',x:0,y:106,w:112,h:364,o:.60,r:'0 38px 38px 0',cls:'band'},
+      {asset:'se',x:386,y:574,w:174,h:124,o:.64,r:'24px',cls:'soft'}
+    ],
+    notes:[
+      {asset:'north',x:360,y:14,w:194,h:92,o:.82,r:'18px',cls:'soft'},
+      {asset:'eastTall',x:470,y:128,w:106,h:312,o:.56,r:'28px 0 0 28px',cls:'band'},
+      {asset:'south',x:46,y:650,w:206,h:84,o:.44,r:'22px',cls:'soft'}
+    ],
+    habit:[
+      {asset:'north',x:352,y:16,w:194,h:92,o:.82,r:'18px',cls:'soft'},
+      {asset:'westTall',x:0,y:116,w:114,h:330,o:.58,r:'0 38px 38px 0',cls:'band'},
+      {asset:'se',x:388,y:582,w:178,h:118,o:.62,r:'24px',cls:'soft'}
+    ]
+  };
+  return base[page] || base.daily;
+}
+
+function renderDecor(){
+  const page = currentPage;
+  const layout = decorLayoutForPage(page);
+  const img = el('imagePreview');
+  const useDerived = imageDerivedDecor && imageDerivedDecor.assets && img && img.src;
+  const structuralPanels = {
+    daily:[{x:0,y:0,w:612,h:108,c:'--header-wash',r:'0 0 36px 36px'},{x:366,y:92,w:166,h:54,c:'rgba(255,255,255,.52)',r:'28px'}],
+    weekly:[{x:0,y:0,w:612,h:104,c:'--header-wash',r:'0 0 34px 34px'}],
+    monthly:[{x:0,y:0,w:612,h:104,c:'--header-wash',r:'0 0 34px 34px'}],
+    todo:[{x:0,y:0,w:612,h:108,c:'--header-wash',r:'0 0 36px 36px'}],
+    notes:[{x:0,y:0,w:612,h:108,c:'--header-wash',r:'0 0 36px 36px'}],
+    habit:[{x:0,y:0,w:612,h:104,c:'--header-wash',r:'0 0 34px 34px'},{x:362,y:94,w:170,h:56,c:'rgba(255,255,255,.52)',r:'28px'}]
+  }[page] || [];
+
+  const fragmentsHtml = useDerived ? layout.map(item => {
+    const src = imageDerivedDecor.assets[item.asset];
+    if(!src) return '';
+    return `<div class="decor-fragment ${item.cls||''}" style="left:${item.x}px; top:${item.y}px; width:${item.w}px; height:${item.h}px; opacity:${item.o}; border-radius:${item.r}; background-image:url('${src}');"></div>`;
+  }).join('') : '';
+
+  const fallback = !useDerived ? `<div class="decor-plate" style="left:0;top:0;width:612px;height:108px;border-radius:0 0 34px 34px;background:var(--header-wash)"></div><div class="decor-plate" style="left:0;top:104px;width:110px;height:340px;border-radius:0 34px 34px 0;background:var(--shape-c);opacity:.45"></div><div class="decor-plate" style="left:380px;top:600px;width:184px;height:112px;border-radius:26px;background:var(--shape-b);opacity:.55"></div>` : '';
+
   plannerDecor.innerHTML = `
-    ${(layout.bands || []).map(b => `<div class="decor-band" style="left:${b.x}px; top:${b.y}px; width:${b.w}px; height:${b.h}px; background:var(${b.c});"></div>`).join('')}
-    ${(layout.blobs || []).map(b => `<div class="decor-blob" style="left:${b.x}px; top:${b.y}px; width:${b.w}px; height:${b.h}px; background:var(${b.v}); border-radius:${b.r};"></div>`).join('')}
-    ${(layout.arcs || []).map(a => `<div class="decor-arch" style="left:${a.x}px; top:${a.y}px; width:${a.w}px; height:${a.h}px; border-color:var(${a.b});"></div>`).join('')}
-    ${extraHero}
-    ${(layout.motifs || []).map(item => `<div class="decor-motif ${item.cls || ''}" style="left:${item.x}px; top:${item.y}px; width:${item.w}px; height:${item.h}px; opacity:${item.o}; color:var(${item.c || '--motif-soft'});">${motifSvg(item.t)}</div>`).join('')}
+    ${structuralPanels.map(p => `<div class="decor-plate" style="left:${p.x}px; top:${p.y}px; width:${p.w}px; height:${p.h}px; border-radius:${p.r}; background:${p.c.startsWith('rgba') ? p.c : `var(${p.c})`};"></div>`).join('')}
+    ${fragmentsHtml}
+    ${fallback}
   `;
 }
 
@@ -508,7 +570,7 @@ function renderCurrentPage() {
   if(currentPage === 'notes') renderNotes(plannerContent);
   if(currentPage === 'habit') renderHabit(plannerContent);
   document.querySelectorAll('#pageTabs button').forEach(btn => btn.classList.toggle('active', btn.dataset.page === currentPage));
-  el('motifLabel').textContent = currentPackName().charAt(0).toUpperCase() + currentPackName().slice(1);
+  el('motifLabel').textContent = imageDerivedDecor ? 'Image-derived' : (currentPackName().charAt(0).toUpperCase() + currentPackName().slice(1));
   updateLayoutLabel();
   renderDecor();
   applyStyleControls(false);
@@ -560,13 +622,14 @@ function themeVarsFromPalette() {
   const text = el('textColor').value;
   const border = el('borderColor').value;
   const fill = el('softFillColor').value;
+  const support = extractedPaletteRich[2] || blendHex(accent, bg, 0.48);
   return {
-    shapeA: blendHex(accent, bg, 0.72),
+    shapeA: blendHex(support, bg, 0.72),
     shapeB: blendHex(fill, bg, 0.28),
     shapeC: blendHex(border, bg, 0.34),
     shapeD: blendHex(accent, bg, 0.84),
     motifStrong: blendHex(text, accent, 0.28),
-    motifSoft: blendHex(accent, bg, 0.46),
+    motifSoft: blendHex(support, bg, 0.36),
     headerWash: blendHex(accent, bg, 0.88),
     pageShadow: blendHex(text, '#ffffff', 0.86)
   };
@@ -630,14 +693,15 @@ el('extractPaletteBtn').addEventListener('click', () => {
   if(!el('rightsCheck').checked) return showToast('Please confirm the image-use checkbox first.');
   const img = el('imagePreview');
   if(!img.src) return showToast('Upload an inspiration image first.');
-  const raw = averagePaletteFromImage(img, 12);
+  const raw = averagePaletteFromImage(img, 18);
   extractedPalette = buildSoftPalette(raw);
+  imageDerivedDecor = buildImageDerivedDecorAssets(img);
   rawDetectedPack = detectPackName(raw);
   renderPalette();
   ['bgColor','accentColor','textColor','borderColor','softFillColor'].forEach((id, idx) => el(id).value = extractedPalette[idx]);
   renderCurrentPage();
   applyStyleControls();
-  showToast('Soft palette extracted and motif pack updated.');
+  showToast('Palette and image-derived design elements updated.');
 });
 
 document.querySelectorAll('#pageTabs button').forEach(btn => {
@@ -673,7 +737,7 @@ el('regenerateBtn').addEventListener('click', () => {
   renderSectionControls();
   renderCurrentPage();
   autosave();
-  showToast(`Daily layout changed to ${dailyLayouts[dailyLayoutIndex].label}.`);
+  showToast(`Daily layout refreshed to ${dailyLayouts[dailyLayoutIndex].label}.`);
 });
 
 async function plannerCanvas(scale=3) {
@@ -772,34 +836,37 @@ function drawPdfMotif(pdf,type,x,y,scale=1,alpha=1){
   }
 }
 function drawPdfBackgroundMotifs(pdf,cfg,pageKey){
-  const p = cfg.pack;
-  const shapeA = blendHex(cfg.accent, cfg.bg, 0.72);
-  const shapeB = blendHex(cfg.fill, cfg.bg, 0.28);
-  const shapeC = blendHex(cfg.border, cfg.bg, 0.34);
   const headerWash = blendHex(cfg.accent, cfg.bg, 0.88);
-  const lightAccent = blendHex(cfg.accent, cfg.bg, 0.46);
-  const strongMotif = blendHex(cfg.text, cfg.accent, 0.28);
-  const pageShapes = {
-    daily: { ellipses:[[24,64,36,70,shapeC],[cfg.w-34,26,56,22,shapeA],[cfg.w-30,cfg.h-32,44,18,shapeB],[58,cfg.h-22,42,12,shapeC]], rects:[[0,0,cfg.w,24,headerWash],[cfg.w-36,54,22,52,shapeC]] },
-    weekly: { ellipses:[[20,58,30,48,shapeC],[cfg.w-34,24,54,20,shapeA],[cfg.w-26,cfg.h-28,36,16,shapeB]], rects:[[0,0,cfg.w,22,headerWash],[cfg.w-34,52,20,60,shapeC]] },
-    monthly:{ ellipses:[[22,60,32,44,shapeC],[cfg.w-34,24,56,22,shapeA],[cfg.w-28,cfg.h-24,42,14,shapeB]], rects:[[0,0,cfg.w,22,headerWash]] },
-    todo:   { ellipses:[[22,72,34,62,shapeC],[cfg.w-30,24,54,22,shapeA],[cfg.w-20,cfg.h-52,24,38,shapeB]], rects:[[0,0,cfg.w,22,headerWash],[cfg.w-30,52,18,70,shapeC]] },
-    notes:  { ellipses:[[22,76,34,82,shapeC],[cfg.w-32,24,54,22,shapeA],[cfg.w-34,cfg.h-28,44,16,shapeB]], rects:[[0,0,cfg.w,22,headerWash],[cfg.w-28,52,18,68,shapeC]] },
-    habit:  { ellipses:[[22,60,32,48,shapeC],[cfg.w-32,24,54,20,shapeA],[cfg.w-30,cfg.h-26,44,16,shapeB]], rects:[[0,0,cfg.w,22,headerWash],[cfg.w-32,54,20,46,shapeC]] }
-  }[pageKey] || {ellipses:[], rects:[]};
-  pageShapes.rects.forEach(([x,y,w,h,c])=>{ setPdfColor(pdf,'setFillColor',c); pdf.roundedRect(x,y,w,h,4,4,'F'); });
-  pageShapes.ellipses.forEach(([x,y,rx,ry,c])=>{ setPdfColor(pdf,'setFillColor',c); pdf.ellipse(x,y,rx,ry,'F'); });
-  const items = {
-    daily:[ [p[0],cfg.w-36,17,1.2,strongMotif], [p[1],28,38,.95,lightAccent], [p[2],cfg.w-24,cfg.h-20,.82,lightAccent], [p[1],cfg.w*.33,cfg.h-18,.78,strongMotif] ],
-    weekly:[ [p[1],cfg.w-36,17,1.2,strongMotif], [p[2],28,38,.92,lightAccent], [p[0],cfg.w-22,cfg.h-22,.8,lightAccent] ],
-    monthly:[ [p[2],cfg.w-36,17,1.2,strongMotif], [p[0],28,40,.92,lightAccent], [p[1],cfg.w-22,cfg.h-20,.8,lightAccent] ],
-    todo:[ [p[0],cfg.w-36,17,1.2,strongMotif], [p[1],28,40,.92,lightAccent], [p[2],cfg.w-22,cfg.h-38,.8,lightAccent] ],
-    notes:[ [p[1],cfg.w-36,17,1.2,strongMotif], [p[2],28,40,.92,lightAccent], [p[0],cfg.w-24,cfg.h-20,.8,lightAccent] ],
-    habit:[ [p[2],cfg.w-36,17,1.2,strongMotif], [p[1],28,40,.92,lightAccent], [p[0],cfg.w-24,cfg.h-20,.8,lightAccent] ]
+  const shapeC = blendHex((extractedPaletteRich[2] || cfg.border), cfg.bg, 0.56);
+  const shapeB = blendHex(cfg.fill, cfg.bg, 0.34);
+  const panels = {
+    daily:[[0,0,cfg.w,24,headerWash,4],[cfg.w-62,26,52,18,'#ffffff',8]],
+    weekly:[[0,0,cfg.w,22,headerWash,4]],
+    monthly:[[0,0,cfg.w,22,headerWash,4]],
+    todo:[[0,0,cfg.w,24,headerWash,4]],
+    notes:[[0,0,cfg.w,24,headerWash,4]],
+    habit:[[0,0,cfg.w,22,headerWash,4],[cfg.w-60,26,50,18,'#ffffff',8]]
   }[pageKey] || [];
-  items.forEach(([type,x,y,scale,color])=>{ pdf.__accentColor = color; drawPdfMotif(pdf,type,x,y,scale); });
-  pdf.__accentColor = cfg.accent;
+  panels.forEach(([x,y,w,h,c,r])=>{ setPdfColor(pdf,'setFillColor',c); pdf.roundedRect(x,y,w,h,r,r,'F'); });
+  if(imageDerivedDecor && imageDerivedDecor.assets){
+    const layout = decorLayoutForPage(pageKey);
+    const pageW = pageDimensionsPx().w;
+    const pageH = pageDimensionsPx().h;
+    layout.forEach(item => {
+      const src = imageDerivedDecor.assets[item.asset];
+      if(!src) return;
+      const x = (item.x / pageW) * cfg.w;
+      const y = (item.y / pageH) * cfg.h;
+      const w = (item.w / pageW) * cfg.w;
+      const h = (item.h / pageH) * cfg.h;
+      try { pdf.addImage(src, 'PNG', x, y, w, h, undefined, 'FAST'); } catch(e) {}
+    });
+  } else {
+    setPdfColor(pdf,'setFillColor',shapeC); pdf.roundedRect(0,32,18,cfg.h*0.42,0,8,'F');
+    setPdfColor(pdf,'setFillColor',shapeB); pdf.roundedRect(cfg.w-54,cfg.h-44,42,22,8,8,'F');
+  }
 }
+
 function drawPdfHeader(pdf, title, eyebrow, right, cfg, pageKey) {
   const {w,h,m,accent,text,border,pack,titleFont,labelFont} = cfg;
   pdf.__accentColor = accent;
@@ -849,11 +916,10 @@ function drawPdfLineSet(pdf,x,y,w,count,gap,border,checks=false) {
   }
 }
 function drawPdfTitleWithIcon(pdf,label,x,y,cfg,motifType){
-  drawPdfMotif(pdf,motifType,x+2.5,y-1.0,0.45);
   setPdfColor(pdf,'setTextColor',cfg.accent);
   pdf.setFont(cfg.labelFont.family, cfg.labelFont.style === 'italic' ? 'italic' : 'bold');
   pdf.setFontSize(Math.max(6.6,cfg.w*.036));
-  pdf.text(label.toUpperCase(), x+7, y);
+  pdf.text(label.toUpperCase(), x, y);
 }
 function fillPanel(pdf,cfg,x,y,w,h){
   setPdfColor(pdf,'setFillColor',cfg.fill);
@@ -1056,7 +1122,7 @@ el('exportPdfBtn').addEventListener('click', async () => {
     pageTypes.forEach((type, index) => { if(index>0) pdf.addPage([cfg.w,cfg.h], 'portrait'); drawVectorPage(pdf, type, cfg); });
     const blob = pdf.output('blob');
     const url = URL.createObjectURL(blob);
-    const fileName = `planner-collection-phase6-${el('pageSize').value}.pdf`;
+    const fileName = `planner-collection-phase6-1-${el('pageSize').value}.pdf`;
     if(isiPadOrIPhone) {
       if(previewWindow) previewWindow.location.href = url;
       showToast('PDF opened. Use Share → Save to Files.');
@@ -1075,7 +1141,7 @@ el('exportPdfBtn').addEventListener('click', async () => {
 
 function projectData(){
   return {
-    version:7,
+    version:8,
     currentPage,
     activeSections,
     extractedPalette,
@@ -1087,7 +1153,8 @@ function projectData(){
     palette:{ background:el('bgColor').value, accent:el('accentColor').value, text:el('textColor').value, border:el('borderColor').value, fill:el('softFillColor').value },
     typography:{ title:el('titleFont').value, label:el('labelFont').value, body:el('bodyFont').value },
     cornerRadius:el('cornerRadius').value,
-    spacing:el('spacing').value
+    spacing:el('spacing').value,
+    imagePreviewSrc: el('imagePreview').src || ''
   };
 }
 function autosave(){ localStorage.setItem('plannerStudioProject', JSON.stringify(projectData())); }
@@ -1117,6 +1184,11 @@ function loadSaved(){
     }
     if(saved.cornerRadius) el('cornerRadius').value = saved.cornerRadius;
     if(saved.spacing) el('spacing').value = saved.spacing;
+    if(saved.imagePreviewSrc){
+      el('imagePreview').onload = () => { imageDerivedDecor = buildImageDerivedDecorAssets(el('imagePreview')); renderCurrentPage(); };
+      el('imagePreview').src = saved.imagePreviewSrc;
+      el('imagePreview').classList.remove('hidden');
+    }
   } catch(err) { console.warn(err); }
 }
 
